@@ -1,0 +1,405 @@
+# Topic Modeling Evaluation Scripts Documentation
+
+This documentation covers the three topic modeling/clustering evaluation scripts used for analyzing the French Rap corpus:
+
+1. **LDA (Latent Dirichlet Allocation)** - `build_and_evaluate_LDA.py`
+2. **BERTopic** - `build_and_evaluate_bertopic.py`
+3. **IRAMUTEQ** - `evaluate_iramuteq.py`
+
+All three scripts produce standardized evaluation metrics and visualizations for comparison.
+
+---
+
+## Table of Contents
+
+1. [Quick Start](#quick-start)
+2. [LDA Script](#lda-script)
+3. [BERTopic Script](#bertopic-script)
+4. [IRAMUTEQ Script](#iramuteq-script)
+5. [Shared Evaluation Metrics](#shared-evaluation-metrics)
+6. [Output Files](#output-files)
+7. [Running Multiple Experiments](#running-multiple-experiments)
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+```bash
+# Install dependencies
+pip install gensim scikit-learn bertopic sentence-transformers umap-learn hdbscan
+pip install matplotlib seaborn pandas numpy scipy
+pip install pyLDAvis  # For LDA visualization
+pip install python-dotenv openai  # For BERTopic OpenAI labeling (optional)
+```
+
+### Basic Usage
+
+```bash
+# Run LDA with default parameters (20 topics)
+python build_and_evaluate_LDA.py
+
+# Run BERTopic with CamemBERT embeddings
+python build_and_evaluate_bertopic.py --embedding camembert
+
+# Evaluate pre-computed IRAMUTEQ classes
+python evaluate_iramuteq.py
+```
+
+### Sample Mode (for testing)
+
+```bash
+# Test with a small sample
+python build_and_evaluate_LDA.py --sample 1000
+python build_and_evaluate_bertopic.py --sample 1000 --compute-embeddings
+python evaluate_iramuteq.py --sample 1000
+```
+
+---
+
+## LDA Script
+
+### Description
+
+`build_and_evaluate_LDA.py` builds a Latent Dirichlet Allocation topic model using Gensim. It supports n-gram detection (bigrams, trigrams) and provides comprehensive evaluation metrics including coherence scores.
+
+### Command Line Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `--topics` | int | 20 | Number of topics to extract |
+| `--passes` | int | 15 | Number of passes through the corpus |
+| `--iterations` | int | 400 | Maximum iterations per pass |
+| `--alpha` | str/float | 'symmetric' | Document-topic density. Options: 'symmetric', 'asymmetric', or a float value |
+| `--eta` | str/float | 'auto' | Topic-word density. Options: 'auto' or a float value |
+| `--sample` | int | None | Sample size for testing (uses full dataset if None) |
+| `--load-corpus` | str | None | Path to pre-computed corpus (pickle file) |
+| `--no-save-corpus` | flag | False | Do not save the corpus to disk |
+| `--no-pyldavis` | flag | False | Do not create pyLDAvis HTML visualization |
+| `--num-words` | int | 30 | Number of top words per topic to save |
+| `--top-artists-topic` | int | 20 | Number of top artists to show per topic |
+| `--top-artists-heatmap` | int | 50 | Number of top artists in heatmap visualizations |
+
+#### N-gram Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `--ngrams` | str | 'both' | N-gram mode (see options below) |
+| `--ngram-min-count` | int | 10 | Minimum frequency for n-gram detection |
+| `--ngram-threshold` | int | 50 | Threshold for n-gram detection (higher = stricter) |
+
+**N-gram Mode Options:**
+- `unigrams`: Only single words (no n-gram detection)
+- `bigrams`: Unigrams + bigrams
+- `trigrams`: Unigrams + trigrams
+- `both`: Unigrams + bigrams + trigrams (default)
+- `ngrams_only`: Only bigrams + trigrams (no unigrams)
+- `bigram_only`: Only bigrams (no unigrams, no trigrams)
+- `trigram_only`: Only trigrams (no unigrams, no bigrams)
+
+### Examples
+
+```bash
+# Standard run with 25 topics
+python build_and_evaluate_LDA.py --topics 25
+
+# High-quality run with more passes
+python build_and_evaluate_LDA.py --topics 20 --passes 30 --iterations 600
+
+# Only bigrams, stricter threshold
+python build_and_evaluate_LDA.py --ngrams bigram_only --ngram-threshold 100
+
+# Asymmetric alpha for varied topic sizes
+python build_and_evaluate_LDA.py --alpha asymmetric
+
+# Load pre-computed corpus
+python build_and_evaluate_LDA.py --load-corpus results/LDA/corpus.pkl
+```
+
+### LDA-Specific Outputs
+
+- `coherence_plot.png`: Bar plot of per-topic C_V coherence scores
+- `topic_pca.png`: PCA visualization of documents colored by dominant topic
+- `pyldavis.html`: Interactive pyLDAvis visualization
+- `lda_model/`: Saved Gensim LDA model (can be reloaded)
+- `dictionary.pkl`: Gensim dictionary
+- `corpus.pkl`: Bag-of-words corpus
+
+---
+
+## BERTopic Script
+
+### Description
+
+`build_and_evaluate_bertopic.py` builds a BERTopic model using pre-trained sentence embeddings. It supports multiple embedding models optimized for French text and uses UMAP + HDBSCAN for clustering.
+
+### Command Line Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `--embedding` | str | 'camembert' | Embedding model to use |
+| `--compute-embeddings` | flag | False | Compute embeddings (otherwise load cached) |
+| `--clusters` | int | 20 | Number of clusters (topics) |
+| `--sample` | int | None | Sample size for testing |
+| `--no-openai` | flag | False | Disable OpenAI topic labeling |
+| `--num-words` | int | 30 | Number of top words per topic |
+| `--top-artists-topic` | int | 20 | Top N artists per topic |
+| `--top-artists-heatmap` | int | 50 | Top N artists in heatmap |
+
+#### UMAP Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `--umap-neighbors` | int | 15 | UMAP n_neighbors (local vs global structure) |
+| `--umap-components` | int | 5 | UMAP n_components (dimensionality) |
+| `--umap-min-dist` | float | 0.0 | UMAP min_dist (cluster tightness) |
+
+**Available Embedding Models:**
+- `camembert`: `dangvantuan/sentence-camembert-base` - French-optimized (recommended)
+- `e5`: `intfloat/multilingual-e5-base` - Multilingual model
+- `mpnet`: `sentence-transformers/all-mpnet-base-v2` - General English model
+
+### Examples
+
+```bash
+# Standard run with CamemBERT
+python build_and_evaluate_bertopic.py --embedding camembert
+
+# Use multilingual E5 embeddings
+python build_and_evaluate_bertopic.py --embedding e5 --compute-embeddings
+
+# More clusters with tighter UMAP
+python build_and_evaluate_bertopic.py --clusters 30 --umap-neighbors 10 --umap-min-dist 0.1
+
+# Disable OpenAI labeling (faster)
+python build_and_evaluate_bertopic.py --no-openai
+
+# Test with sample (must compute embeddings for sample)
+python build_and_evaluate_bertopic.py --sample 1000 --compute-embeddings
+```
+
+### BERTopic-Specific Outputs
+
+- `silhouette_plot.png`: Per-cluster silhouette scores
+- `umap_topics.png`: 2D UMAP visualization colored by topic
+- `bertopic_model/`: Saved BERTopic model
+- Embeddings cached in `models/embeddings/`
+
+### Environment Variables
+
+For OpenAI topic labeling, set in `.env`:
+```
+OPENAI_API_KEY=your_api_key_here
+```
+
+---
+
+## IRAMUTEQ Script
+
+### Description
+
+`evaluate_iramuteq.py` evaluates pre-computed IRAMUTEQ classification (Reinert method). Unlike LDA and BERTopic, this script does not build a model - it evaluates existing cluster assignments stored in the `IRAMUTEQ_CLASSES` column of the dataset.
+
+### Command Line Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `--sample` | int | None | Sample size for testing |
+| `--min-docs-artist` | int | 10 | Minimum documents per artist for metrics |
+| `--top-artists-topic` | int | 20 | Top N artists per topic |
+| `--top-artists-heatmap` | int | 50 | Top N artists in heatmap |
+
+### Examples
+
+```bash
+# Standard evaluation
+python evaluate_iramuteq.py
+
+# Test with sample
+python evaluate_iramuteq.py --sample 1000
+
+# Stricter artist filtering
+python evaluate_iramuteq.py --min-docs-artist 20
+```
+
+### IRAMUTEQ-Specific Outputs
+
+- `class_distribution.png`: Bar plot with document counts per class
+
+---
+
+## Shared Evaluation Metrics
+
+All three scripts compute the same standardized metrics using `utils/utils_evaluation.py`:
+
+### Cluster Metrics
+
+- **Number of topics/clusters**: Count of distinct clusters
+- **Documents per topic**: Distribution of documents across topics
+
+### Artist Separation Metrics
+
+These metrics measure how artists specialize across topics:
+
+- **Artist Specialization Score**: Mean proportion of artist's documents in their dominant topic
+- **Mean JS Divergence**: Average Jensen-Shannon divergence between artist topic profiles
+- **Classification Distribution**:
+  - **Specialists**: >50% of documents in dominant topic
+  - **Moderate**: 30-50% in dominant topic
+  - **Generalists**: <30% in dominant topic
+- **Mean Dominant Ratio**: Average ratio of dominant topic across artists
+- **Mean Significant Topics**: Average number of topics with >10% of artist's documents
+
+**Note on `--min-docs-artist` parameter:**
+
+This parameter (default: 10) sets the minimum number of documents (verses) an artist must have to be included in artist separation metrics. Artists with very few verses give unreliable statistics - for example, an artist with only 2 verses who happens to have both in topic 5 would appear as a "100% specialist" when this is just noise, not meaningful specialization.
+
+- **Lower value (e.g., 5)**: More artists included, but noisier statistics
+- **Higher value (e.g., 20)**: Fewer artists, but more reliable per-artist metrics
+
+The global metrics (mean specialization, % specialists, etc.) are computed only over "valid" artists who meet this threshold.
+
+### Temporal Separation Metrics
+
+These metrics measure how topics evolve over time:
+
+- **Mean Temporal Variance**: Variance in topic proportions across years
+- **Decade Changes (JS)**: Jensen-Shannon divergence between consecutive decades
+- **Biannual Changes (JS)**: Jensen-Shannon divergence between consecutive 2-year windows
+- **Trend Correlations**: Topics with increasing/decreasing prevalence over time
+
+### Why Jensen-Shannon Divergence?
+
+We use Jensen-Shannon (JS) divergence for comparing probability distributions because:
+
+1. **Symmetry**: JS(P||Q) = JS(Q||P), important when no "reference" distribution exists
+2. **Bounded**: Values between 0 (identical) and 1 (maximally different)
+3. **Always defined**: Works even when distributions have zeros
+4. **Metric property**: Square root of JS is a proper metric
+5. **Information-theoretic**: Measures information lost when using average distribution
+
+---
+
+## Output Files
+
+Each run creates a timestamped directory under `results/{METHOD}/evaluation_YYYYMMDD_HHMMSS/`:
+
+### Common Outputs (All Methods)
+
+| File | Description |
+|------|-------------|
+| `metrics.json` | All computed metrics in JSON format |
+| `doc_assignments.csv` | Document-to-topic assignments |
+| `topic_distribution.png` | Bar plot of documents per topic |
+| `topic_evolution_heatmap.png` | Heatmap of topic prevalence over time |
+| `year_topic_heatmap.png` | Heatmap of topic distribution by year |
+| `artist_topics_heatmap.png` | Top N artists' topic profiles |
+| `artist_specialization.png` | Artist classification distribution |
+| `biannual_js_divergence.png` | 2-year window JS divergence plot |
+| `topic_evolution.csv` | Topic proportions by year |
+| `biannual_js_divergence.csv` | JS values between 2-year windows |
+| `topic_top_artists.csv` | Top artists per topic |
+| `artist_topic_metrics.csv` | Per-artist metrics |
+
+### Method-Specific Outputs
+
+**LDA:**
+- `topics.json`: Topic word distributions
+- `coherence_plot.png`: Per-topic coherence
+- `topic_pca.png`: PCA visualization
+- `pyldavis.html`: Interactive visualization
+- `lda_model/`, `dictionary.pkl`, `corpus.pkl`
+
+**BERTopic:**
+- `topics.json`: Topic representations (c-TF-IDF, etc.)
+- `silhouette_plot.png`: Silhouette scores
+- `umap_topics.png`: UMAP visualization
+- `bertopic_model/`
+
+**IRAMUTEQ:**
+- `class_distribution.json`: Class counts
+- `class_distribution.png`: Class size bar plot
+
+---
+
+## Running Multiple Experiments
+
+### Using tmux for Long-Running Jobs
+
+```bash
+# Start a new tmux session
+tmux new -s topic_models
+
+# Run the batch script
+python main_run_multiple_evaluation.py
+
+# Detach with Ctrl+B, then D
+# Reattach later with: tmux attach -t topic_models
+```
+
+### Batch Experiment Script
+
+Use `main_run_multiple_evaluation.py` to run multiple configurations:
+
+```bash
+# Run all experiments (3 BERTopic + 4 LDA configurations)
+python main_run_multiple_evaluation.py
+
+# This will run:
+# - BERTopic with camembert, e5, mpnet embeddings
+# - LDA with bigram_only, trigram_only, ngrams_only, both
+```
+
+See the script for customization options.
+
+---
+
+## Tips and Best Practices
+
+### Memory Considerations
+
+- BERTopic embeddings require significant RAM (~8GB for full corpus)
+- Use `--sample` for testing before full runs
+- Pre-compute embeddings once, then reuse
+
+### Choosing Parameters
+
+**LDA:**
+- Start with 20 topics, adjust based on coherence scores
+- Higher passes (20-30) improve quality but increase time
+- 'symmetric' alpha gives balanced topics
+
+**BERTopic:**
+- CamemBERT recommended for French text
+- Lower UMAP neighbors (10-15) preserves local structure
+- UMAP components of 5 balances speed/quality
+
+### Comparing Results
+
+- All methods produce comparable `metrics.json` files
+- Use the shared metrics (artist separation, temporal evolution) for comparison
+- Method-specific metrics (coherence for LDA, silhouette for BERTopic) are not directly comparable
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+**"IRAMUTEQ_CLASSES column not found"**
+- Ensure your dataset has the IRAMUTEQ classification column
+
+**"Embeddings don't match documents"**
+- Use `--compute-embeddings` when changing sample size
+
+**Division by zero in artist metrics**
+- Happens when no artists have enough documents (increase sample or decrease `--min-docs-artist`)
+
+**CUDA out of memory**
+- Reduce batch size in embedding computation
+- Use CPU with smaller sample first
+
+### Getting Help
+
+Check the source code comments for detailed explanations of each metric and function.
