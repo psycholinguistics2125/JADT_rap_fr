@@ -38,7 +38,7 @@ BERTOPIC_EXPERIMENTS = [
         'name': 'BERTopic_camembert',
         'embedding': 'camembert',
         'clusters': 20,
-        'compute_embeddings': False,  # Compute for first run
+        'compute_embeddings': True,  # Compute for first run
     },
     {
         'name': 'BERTopic_e5',
