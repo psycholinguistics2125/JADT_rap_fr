@@ -67,12 +67,15 @@ def compute_artist_separation(topics: np.ndarray, df: pd.DataFrame,
     - If no: artists are "generalists" (spread across many topics)
 
     Args:
-        topics: Array of topic assignments (dominant topic per document)
+        topics: Array of topic assignments (dominant topic per document).
+                For LDA, this should be argmax(doc_topics, axis=1).
         df: DataFrame with 'artist' column
         min_docs_per_artist: Minimum documents to include an artist
         top_artists_per_topic: Number of top artists to save per topic
         doc_topics: Optional array of topic probabilities per document (for LDA).
-                    If None, will compute profiles from topic assignments.
+                    Shape: (n_docs, n_topics). If provided, artist profiles are
+                    computed by averaging probabilities. If None, profiles are
+                    computed by counting topic assignments.
 
     Returns:
         Dictionary with per-artist metrics, general metrics, and topic_top_artists
@@ -215,15 +218,23 @@ def compute_artist_separation(topics: np.ndarray, df: pd.DataFrame,
     artist_topic_profiles = {}
     for a in artist_metrics:
         artist = a['artist']
-        artist_mask = df['artist'] == artist
-        artist_topics_all = topics[artist_mask.values]
-        artist_topics = artist_topics_all[artist_topics_all >= 0]
-        if len(artist_topics) > 0:
-            # Map topics to indices for consistent bincount
-            artist_topics_idx = np.array([topic_to_idx[t] for t in artist_topics])
-            topic_counts = np.bincount(artist_topics_idx, minlength=n_topics)
-            if topic_counts.sum() > 0:
-                artist_topic_profiles[artist] = topic_counts / topic_counts.sum()
+        artist_mask = (df['artist'] == artist).values
+
+        if doc_topics is not None:
+            # LDA case: use probability matrix (average probabilities)
+            artist_docs = doc_topics[artist_mask]
+            if len(artist_docs) > 0:
+                artist_topic_profiles[artist] = artist_docs.mean(axis=0)
+        else:
+            # BERTopic/IRAMUTEQ case: use topic counts
+            artist_topics_all = topics[artist_mask]
+            artist_topics = artist_topics_all[artist_topics_all >= 0]
+            if len(artist_topics) > 0:
+                # Map topics to indices for consistent bincount
+                artist_topics_idx = np.array([topic_to_idx[t] for t in artist_topics])
+                topic_counts = np.bincount(artist_topics_idx, minlength=n_topics)
+                if topic_counts.sum() > 0:
+                    artist_topic_profiles[artist] = topic_counts / topic_counts.sum()
 
     js_distances = []
     valid_profile_artists = list(artist_topic_profiles.keys())
@@ -299,14 +310,20 @@ def compute_artist_separation(topics: np.ndarray, df: pd.DataFrame,
 
 
 def compute_temporal_separation(topics: np.ndarray, df: pd.DataFrame,
-                                year_column: str = 'year') -> dict:
+                                year_column: str = 'year',
+                                doc_topics: np.ndarray = None) -> dict:
     """
     Compute how topics evolve over time.
 
     Args:
-        topics: Array of topic assignments (dominant topic per document)
+        topics: Array of topic assignments (dominant topic per document).
+                For LDA, this should be argmax(doc_topics, axis=1).
         df: DataFrame with year column
         year_column: Name of the year column
+        doc_topics: Optional array of topic probabilities per document (for LDA).
+                    Shape: (n_docs, n_topics). If provided, temporal profiles are
+                    computed by averaging probabilities. If None, profiles are
+                    computed by counting topic assignments.
 
     Returns:
         Dictionary with temporal metrics
@@ -315,16 +332,25 @@ def compute_temporal_separation(topics: np.ndarray, df: pd.DataFrame,
 
     metrics = {}
 
-    # Handle outliers
-    valid_topic_mask = topics >= 0
-    unique_topics = np.unique(topics[valid_topic_mask])
-    n_topics = len(unique_topics)
+    # Determine n_topics based on input
+    if doc_topics is not None:
+        # LDA case: n_topics from probability matrix shape
+        n_topics = doc_topics.shape[1]
+        topic_to_idx = None  # Not needed for LDA
+        # Filter valid years only (LDA has no outliers)
+        valid_mask = df[year_column].notna()
+        doc_topics_valid = doc_topics[valid_mask.values]
+    else:
+        # BERTopic/IRAMUTEQ case: determine from topic assignments
+        valid_topic_mask = topics >= 0
+        unique_topics = np.unique(topics[valid_topic_mask])
+        n_topics = len(unique_topics)
+        # Create topic-to-index mapping (handles non-zero-indexed topics like IRAMUTEQ 1-20)
+        topic_to_idx = {t: i for i, t in enumerate(sorted(unique_topics))}
+        # Filter valid years and non-outlier topics
+        valid_mask = df[year_column].notna() & (topics >= 0)
+        doc_topics_valid = None
 
-    # Create topic-to-index mapping (handles non-zero-indexed topics like IRAMUTEQ 1-20)
-    topic_to_idx = {t: i for i, t in enumerate(sorted(unique_topics))}
-
-    # Filter valid years and non-outlier topics
-    valid_mask = df[year_column].notna() & (topics >= 0)
     years = df.loc[valid_mask, year_column].astype(int).values
     topics_valid = topics[valid_mask.values]
 
@@ -336,23 +362,31 @@ def compute_temporal_separation(topics: np.ndarray, df: pd.DataFrame,
     for year in unique_years:
         year_mask = years == year
         if year_mask.sum() > 0:
-            year_topics = topics_valid[year_mask]
-            # Map topics to indices for consistent bincount
-            year_topics_idx = np.array([topic_to_idx[t] for t in year_topics])
-            topic_counts = np.bincount(year_topics_idx, minlength=n_topics)
-            topic_by_year[year] = topic_counts / topic_counts.sum()
+            if doc_topics is not None:
+                # LDA case: use probability matrix (average probabilities)
+                topic_by_year[year] = doc_topics_valid[year_mask].mean(axis=0)
+            else:
+                # BERTopic/IRAMUTEQ case: use topic counts
+                year_topics = topics_valid[year_mask]
+                year_topics_idx = np.array([topic_to_idx[t] for t in year_topics])
+                topic_counts = np.bincount(year_topics_idx, minlength=n_topics)
+                topic_by_year[year] = topic_counts / topic_counts.sum()
 
     topic_evolution_df = pd.DataFrame(topic_by_year).T
     topic_evolution_df.index.name = 'year'
 
-    # 2. Dominant topic distribution per year
+    # 2. Dominant topic distribution per year (always count-based for classification)
     dominant_by_year = {}
     for year in unique_years:
         year_mask = years == year
         if year_mask.sum() > 0:
             year_topics = topics_valid[year_mask]
-            year_topics_idx = np.array([topic_to_idx[t] for t in year_topics])
-            topic_counts = np.bincount(year_topics_idx, minlength=n_topics)
+            if doc_topics is not None:
+                # LDA: topics are already 0-indexed
+                topic_counts = np.bincount(year_topics, minlength=n_topics)
+            else:
+                year_topics_idx = np.array([topic_to_idx[t] for t in year_topics])
+                topic_counts = np.bincount(year_topics_idx, minlength=n_topics)
             dominant_by_year[year] = topic_counts / topic_counts.sum()
 
     # 3. Trend correlations per topic
@@ -396,11 +430,15 @@ def compute_temporal_separation(topics: np.ndarray, df: pd.DataFrame,
         for decade, decade_years in decades.items():
             decade_mask = np.isin(years, decade_years)
             if decade_mask.sum() > 0:
-                decade_topics = topics_valid[decade_mask]
-                # Map topics to indices for consistent bincount
-                decade_topics_idx = np.array([topic_to_idx[t] for t in decade_topics])
-                topic_counts = np.bincount(decade_topics_idx, minlength=n_topics)
-                decade_profiles[decade] = topic_counts / topic_counts.sum()
+                if doc_topics is not None:
+                    # LDA case: use probability matrix
+                    decade_profiles[decade] = doc_topics_valid[decade_mask].mean(axis=0)
+                else:
+                    # BERTopic/IRAMUTEQ case: use topic counts
+                    decade_topics = topics_valid[decade_mask]
+                    decade_topics_idx = np.array([topic_to_idx[t] for t in decade_topics])
+                    topic_counts = np.bincount(decade_topics_idx, minlength=n_topics)
+                    decade_profiles[decade] = topic_counts / topic_counts.sum()
 
         sorted_decades = sorted(decade_profiles.keys())
         decade_changes = {}
@@ -426,11 +464,16 @@ def compute_temporal_separation(topics: np.ndarray, df: pd.DataFrame,
             window_years = [window_start, window_start + 1]
             window_mask = np.isin(years, window_years)
             if window_mask.sum() >= 10:  # Need minimum docs
-                window_topics = topics_valid[window_mask]
-                window_topics_idx = np.array([topic_to_idx[t] for t in window_topics])
-                topic_counts = np.bincount(window_topics_idx, minlength=n_topics)
-                if topic_counts.sum() > 0:
-                    window_profiles[window_start] = topic_counts / topic_counts.sum()
+                if doc_topics is not None:
+                    # LDA case: use probability matrix
+                    window_profiles[window_start] = doc_topics_valid[window_mask].mean(axis=0)
+                else:
+                    # BERTopic/IRAMUTEQ case: use topic counts
+                    window_topics = topics_valid[window_mask]
+                    window_topics_idx = np.array([topic_to_idx[t] for t in window_topics])
+                    topic_counts = np.bincount(window_topics_idx, minlength=n_topics)
+                    if topic_counts.sum() > 0:
+                        window_profiles[window_start] = topic_counts / topic_counts.sum()
 
         # Compute JS divergence between consecutive windows
         sorted_windows = sorted(window_profiles.keys())
