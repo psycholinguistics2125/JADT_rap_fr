@@ -1,3 +1,13 @@
+models/*.npy
+models/bunka*
+old_draft_code/*
+results/verses*
+results/visualisation*
+data/*.csv
+data/old/*
+config.yaml
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
