@@ -52,7 +52,7 @@ python evaluate_iramuteq.py
 ```bash
 # Test with a small sample
 python build_and_evaluate_LDA.py --sample 1000
-python build_and_evaluate_bertopic.py --sample 1000 --compute-embeddings
+python build_and_evaluate_bertopic.py --sample 1000  # auto-computes embeddings
 python evaluate_iramuteq.py --sample 1000
 ```
 
@@ -139,13 +139,15 @@ python build_and_evaluate_LDA.py --load-corpus results/LDA/corpus.pkl
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `--embedding` | str | 'camembert' | Embedding model to use |
-| `--compute-embeddings` | flag | False | Compute embeddings (otherwise load cached) |
+| `--compute-embeddings` | flag | False | Compute and save embeddings (only needed with `--no-keybert`) |
 | `--clusters` | int | 20 | Number of clusters (topics) |
-| `--sample` | int | None | Sample size for testing |
+| `--sample` | int | None | Sample size (auto-computes embeddings) |
 | `--no-openai` | flag | False | Disable OpenAI topic labeling |
 | `--num-words` | int | 30 | Number of top words per topic |
 | `--top-artists-topic` | int | 20 | Top N artists per topic |
 | `--top-artists-heatmap` | int | 50 | Top N artists in heatmap |
+| `--no-keybert` | flag | False | Disable KeyBERTInspired representation (enabled by default) |
+| `--no-interactive-html` | flag | False | Disable interactive HTML visualization (enabled by default) |
 
 #### UMAP Parameters
 
@@ -176,7 +178,16 @@ python build_and_evaluate_bertopic.py --clusters 30 --umap-neighbors 10 --umap-m
 python build_and_evaluate_bertopic.py --no-openai
 
 # Test with sample (must compute embeddings for sample)
-python build_and_evaluate_bertopic.py --sample 1000 --compute-embeddings
+python build_and_evaluate_bertopic.py --sample 1000  # auto-computes embeddings
+
+# Without KeyBERTInspired representation (faster)
+python build_and_evaluate_bertopic.py --embedding camembert --no-keybert
+
+# Without interactive HTML visualization
+python build_and_evaluate_bertopic.py --embedding camembert --no-interactive-html
+
+# Minimal run (no KeyBERT, no HTML, no OpenAI)
+python build_and_evaluate_bertopic.py --embedding camembert --no-keybert --no-interactive-html --no-openai
 ```
 
 ### BERTopic-Specific Outputs
@@ -184,7 +195,36 @@ python build_and_evaluate_bertopic.py --sample 1000 --compute-embeddings
 - `silhouette_plot.png`: Per-cluster silhouette scores
 - `umap_topics.png`: 2D UMAP visualization colored by topic
 - `bertopic_model/`: Saved BERTopic model
+- `interactive_bertopic.html`: Interactive visualization (with `--interactive-html`)
 - Embeddings cached in `models/embeddings/`
+
+### KeyBERTInspired Representation
+
+KeyBERTInspired is **enabled by default**. Use `--no-keybert` to disable it.
+
+When enabled, the script loads the SentenceTransformer model and computes embeddings automatically (no need for `--compute-embeddings`). This representation method:
+
+- Uses the embedding model to find keywords that are semantically similar to the topic
+- Produces different keywords than c-TF-IDF (statistical) or MMR (diversity-focused)
+- Requires the embedding model to be loaded (increases memory usage)
+- Results are saved in `topics.json` under the "keybert" key
+
+**Note:** When KeyBERT is enabled, embeddings are computed on-the-fly and not saved (to avoid overwriting cached full embeddings). Use `--no-keybert --compute-embeddings` to save embeddings for future runs without KeyBERT.
+
+### Interactive HTML Visualization
+
+Interactive HTML visualization is **enabled by default**. Use `--no-interactive-html` to disable it.
+
+The script generates a pyLDAvis-style interactive visualization:
+
+- **Left panel**: UMAP scatter plot of all documents colored by topic
+- **Right panel**: Topic details (updates when you click on a cluster)
+  - Keywords from all representations (c-TF-IDF, MMR, KeyBERT)
+  - Top artists for the topic
+  - Year distribution mini-chart
+  - Example documents
+
+The HTML file is self-contained (uses CDN for Plotly.js) and can be opened in any modern browser.
 
 ### Environment Variables
 
@@ -312,9 +352,10 @@ Each run creates a timestamped directory under `results/{METHOD}/evaluation_YYYY
 - `lda_model/`, `dictionary.pkl`, `corpus.pkl`
 
 **BERTopic:**
-- `topics.json`: Topic representations (c-TF-IDF, etc.)
+- `topics.json`: Topic representations (c-TF-IDF, MMR, KeyBERT if enabled)
 - `silhouette_plot.png`: Silhouette scores
 - `umap_topics.png`: UMAP visualization
+- `interactive_bertopic.html`: Interactive visualization (with `--interactive-html`)
 - `bertopic_model/`
 
 **IRAMUTEQ:**
@@ -391,7 +432,8 @@ See the script for customization options.
 - Ensure your dataset has the IRAMUTEQ classification column
 
 **"Embeddings don't match documents"**
-- Use `--compute-embeddings` when changing sample size
+- For sample runs: embeddings are now auto-computed (no action needed)
+- For full runs: use `--compute-embeddings` to recompute
 
 **Division by zero in artist metrics**
 - Happens when no artists have enough documents (increase sample or decrease `--min-docs-artist`)

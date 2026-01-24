@@ -97,16 +97,21 @@ def test_lda(sample_size: int) -> tuple:
     return run_command(cmd, "LDA Evaluation")
 
 
-def test_bertopic(sample_size: int) -> tuple:
+def test_bertopic(sample_size: int, skip_keybert: bool = False,
+                  skip_html: bool = False) -> tuple:
     """Test BERTopic evaluation."""
     cmd = [
         sys.executable,
         str(PROJECT_DIR / "build_and_evaluate_bertopic.py"),
         '--sample', str(sample_size),
         '--clusters', '10',  # Fewer clusters for faster testing
-        '--compute-embeddings',  # Must compute for sample
         '--no-openai',  # Skip OpenAI for speed
+        # Note: embeddings auto-computed for sample runs
     ]
+    if skip_keybert:
+        cmd.append('--no-keybert')
+    if skip_html:
+        cmd.append('--no-interactive-html')
     return run_command(cmd, "BERTopic Evaluation")
 
 
@@ -129,6 +134,14 @@ def main():
     parser.add_argument(
         '--skip-iramuteq', action='store_true',
         help='Skip IRAMUTEQ test'
+    )
+    parser.add_argument(
+        '--skip-keybert', action='store_true',
+        help='Skip KeyBERTInspired representation (enabled by default)'
+    )
+    parser.add_argument(
+        '--skip-html', action='store_true',
+        help='Skip interactive HTML visualization (enabled by default)'
     )
 
     args = parser.parse_args()
@@ -154,7 +167,11 @@ def main():
 
     # Test BERTopic
     if not args.skip_bertopic:
-        success, duration, error = test_bertopic(args.sample)
+        success, duration, error = test_bertopic(
+            args.sample,
+            skip_keybert=args.skip_keybert,
+            skip_html=args.skip_html
+        )
         results.append(('BERTopic', success, duration, error))
 
     total_duration = time.time() - total_start

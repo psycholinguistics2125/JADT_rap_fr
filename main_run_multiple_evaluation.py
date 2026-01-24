@@ -38,19 +38,19 @@ BERTOPIC_EXPERIMENTS = [
         'name': 'BERTopic_camembert',
         'embedding': 'camembert',
         'clusters': 20,
-        'compute_embeddings': True,  # Compute for first run
+        'compute_embeddings': False,  # Compute for first run
     },
     {
         'name': 'BERTopic_e5',
         'embedding': 'e5',
         'clusters': 20,
-        'compute_embeddings': True,
+        'compute_embeddings': False,
     },
     {
         'name': 'BERTopic_mpnet',
         'embedding': 'mpnet',
         'clusters': 20,
-        'compute_embeddings': True,
+        'compute_embeddings': False,
     },
 ]
 
@@ -241,7 +241,7 @@ def print_summary(results: list, total_duration: float, log_file: Path):
         f.write(summary_text)
 
 
-def main():
+def main(skip_lda: bool = False, skip_iramuteq: bool = False, skip_bertopic: bool = False):
     """Main function to run all experiments."""
     # Create timestamped log file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -256,17 +256,32 @@ def main():
 
     # List all experiments
     log_message("Planned experiments:", log_file)
-    log_message("  BERTopic:", log_file)
-    for exp in BERTOPIC_EXPERIMENTS:
-        log_message(f"    - {exp['name']}", log_file)
-    log_message("  LDA:", log_file)
-    for exp in LDA_EXPERIMENTS:
-        log_message(f"    - {exp['name']}", log_file)
-    log_message("  IRAMUTEQ:", log_file)
-    log_message(f"    - {IRAMUTEQ_EXPERIMENT['name']}", log_file)
+    if not skip_bertopic:
+        log_message("  BERTopic:", log_file)
+        for exp in BERTOPIC_EXPERIMENTS:
+            log_message(f"    - {exp['name']}", log_file)
+    else:
+        log_message("  BERTopic: SKIPPED", log_file)
+    if not skip_lda:
+        log_message("  LDA:", log_file)
+        for exp in LDA_EXPERIMENTS:
+            log_message(f"    - {exp['name']}", log_file)
+    else:
+        log_message("  LDA: SKIPPED", log_file)
+    if not skip_iramuteq:
+        log_message("  IRAMUTEQ:", log_file)
+        log_message(f"    - {IRAMUTEQ_EXPERIMENT['name']}", log_file)
+    else:
+        log_message("  IRAMUTEQ: SKIPPED", log_file)
     log_message("", log_file)
 
-    total_experiments = len(BERTOPIC_EXPERIMENTS) + len(LDA_EXPERIMENTS) + 1
+    total_experiments = 0
+    if not skip_bertopic:
+        total_experiments += len(BERTOPIC_EXPERIMENTS)
+    if not skip_lda:
+        total_experiments += len(LDA_EXPERIMENTS)
+    if not skip_iramuteq:
+        total_experiments += 1
     log_message(f"Total experiments to run: {total_experiments}", log_file)
     log_message("", log_file)
 
@@ -274,47 +289,50 @@ def main():
     total_start = time.time()
 
     # Run IRAMUTEQ first (fastest, no model building)
-    log_message("=" * 70, log_file)
-    log_message("PHASE 1: IRAMUTEQ EVALUATION", log_file)
-    log_message("=" * 70, log_file)
+    if not skip_iramuteq:
+        log_message("=" * 70, log_file)
+        log_message("PHASE 1: IRAMUTEQ EVALUATION", log_file)
+        log_message("=" * 70, log_file)
 
-    success, duration = run_iramuteq_experiment(IRAMUTEQ_EXPERIMENT, log_file)
-    results.append({
-        'name': IRAMUTEQ_EXPERIMENT['name'],
-        'success': success,
-        'duration': duration,
-    })
-    log_message("", log_file)
+        success, duration = run_iramuteq_experiment(IRAMUTEQ_EXPERIMENT, log_file)
+        results.append({
+            'name': IRAMUTEQ_EXPERIMENT['name'],
+            'success': success,
+            'duration': duration,
+        })
+        log_message("", log_file)
 
     # Run LDA experiments
-    log_message("=" * 70, log_file)
-    log_message("PHASE 2: LDA EXPERIMENTS", log_file)
-    log_message("=" * 70, log_file)
+    if not skip_lda:
+        log_message("=" * 70, log_file)
+        log_message("PHASE 2: LDA EXPERIMENTS", log_file)
+        log_message("=" * 70, log_file)
 
-    for i, config in enumerate(LDA_EXPERIMENTS, 1):
-        log_message(f"\n--- LDA Experiment {i}/{len(LDA_EXPERIMENTS)} ---", log_file)
-        success, duration = run_lda_experiment(config, log_file)
-        results.append({
-            'name': config['name'],
-            'success': success,
-            'duration': duration,
-        })
+        for i, config in enumerate(LDA_EXPERIMENTS, 1):
+            log_message(f"\n--- LDA Experiment {i}/{len(LDA_EXPERIMENTS)} ---", log_file)
+            success, duration = run_lda_experiment(config, log_file)
+            results.append({
+                'name': config['name'],
+                'success': success,
+                'duration': duration,
+            })
 
-    log_message("", log_file)
+        log_message("", log_file)
 
     # Run BERTopic experiments
-    log_message("=" * 70, log_file)
-    log_message("PHASE 3: BERTOPIC EXPERIMENTS", log_file)
-    log_message("=" * 70, log_file)
+    if not skip_bertopic:
+        log_message("=" * 70, log_file)
+        log_message("PHASE 3: BERTOPIC EXPERIMENTS", log_file)
+        log_message("=" * 70, log_file)
 
-    for i, config in enumerate(BERTOPIC_EXPERIMENTS, 1):
-        log_message(f"\n--- BERTopic Experiment {i}/{len(BERTOPIC_EXPERIMENTS)} ---", log_file)
-        success, duration = run_bertopic_experiment(config, log_file)
-        results.append({
-            'name': config['name'],
-            'success': success,
-            'duration': duration,
-        })
+        for i, config in enumerate(BERTOPIC_EXPERIMENTS, 1):
+            log_message(f"\n--- BERTopic Experiment {i}/{len(BERTOPIC_EXPERIMENTS)} ---", log_file)
+            success, duration = run_bertopic_experiment(config, log_file)
+            results.append({
+                'name': config['name'],
+                'success': success,
+                'duration': duration,
+            })
 
     total_duration = time.time() - total_start
 
@@ -333,4 +351,28 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description='Run multiple topic modeling experiments'
+    )
+    parser.add_argument(
+        '--skip-lda', action='store_true',
+        help='Skip LDA experiments'
+    )
+    parser.add_argument(
+        '--skip-iramuteq', action='store_true',
+        help='Skip IRAMUTEQ evaluation'
+    )
+    parser.add_argument(
+        '--skip-bertopic', action='store_true',
+        help='Skip BERTopic experiments'
+    )
+
+    args = parser.parse_args()
+
+    sys.exit(main(
+        skip_lda=args.skip_lda,
+        skip_iramuteq=args.skip_iramuteq,
+        skip_bertopic=args.skip_bertopic
+    ))

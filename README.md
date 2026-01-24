@@ -14,7 +14,8 @@ JADT_rap_fr/
 │   └── IRAMUTEQ/                  # IRAMUTEQ results
 ├── logs/                          # Batch run logs
 ├── utils/
-│   └── utils_evaluation.py        # Shared evaluation utilities
+│   ├── utils_evaluation.py        # Shared evaluation utilities
+│   └── utils_visualization_html.py # Interactive HTML visualization
 ├── docs/
 │   └── TOPIC_MODELING_SCRIPTS.md  # Detailed documentation
 ├── build_and_evaluate_LDA.py      # LDA topic modeling
@@ -75,12 +76,14 @@ Options:
 python build_and_evaluate_bertopic.py [OPTIONS]
 
 Options:
-  --embedding MODEL   Embedding model: camembert, e5, mpnet (default: camembert)
-  --compute-embeddings  Compute embeddings (required for first run)
-  --clusters N        Number of clusters (default: 20)
-  --umap-neighbors N  UMAP n_neighbors (default: 15)
-  --sample N          Sample size for testing
-  --no-openai         Disable OpenAI topic labeling
+  --embedding MODEL     Embedding model: camembert, e5, mpnet (default: camembert)
+  --compute-embeddings  Compute and save embeddings (only needed with --no-keybert)
+  --clusters N          Number of clusters (default: 20)
+  --umap-neighbors N    UMAP n_neighbors (default: 15)
+  --sample N            Sample size for testing
+  --no-openai           Disable OpenAI topic labeling
+  --no-keybert          Disable KeyBERTInspired representation (enabled by default)
+  --no-interactive-html Disable interactive HTML visualization (enabled by default)
 ```
 
 #### IRAMUTEQ
@@ -127,6 +130,7 @@ Each evaluation creates a timestamped directory with:
 | `artist_topics_heatmap.png` | Artist topic profiles |
 | `artist_specialization.png` | Artist classification distribution |
 | `biannual_js_divergence.png` | 2-year temporal changes |
+| `interactive_bertopic.html` | Interactive topic explorer (BERTopic only, enabled by default) |
 
 ### Evaluation Metrics
 

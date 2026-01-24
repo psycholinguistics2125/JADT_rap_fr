@@ -30,7 +30,7 @@ from umap import UMAP
 
 # BERTopic
 from bertopic import BERTopic
-from bertopic.representation import MaximalMarginalRelevance
+from bertopic.representation import MaximalMarginalRelevance, KeyBERTInspired
 
 # Sentence Transformers
 from sentence_transformers import SentenceTransformer
@@ -50,6 +50,10 @@ from utils.utils_evaluation import (
     create_biannual_js_plot,
     create_year_topic_heatmap,
     print_evaluation_summary,
+)
+from utils.utils_visualization_html import (
+    prepare_visualization_data,
+    create_interactive_bertopic_html,
 )
 
 warnings.filterwarnings('ignore')
@@ -105,9 +109,11 @@ def get_embedding_path(embedding_name: str) -> str:
 
 def compute_embeddings(docs: list, model_name: str, embedding_key: str,
                        batch_size: int = 64, save: bool = True,
-                       force: bool = False) -> np.ndarray:
+                       force: bool = False,
+                       model: SentenceTransformer = None) -> np.ndarray:
     """
     Compute embeddings for documents using a sentence transformer model.
+    Optionally accepts a pre-loaded model to avoid reloading.
     """
     embedding_path = get_embedding_path(embedding_key)
 
@@ -124,11 +130,21 @@ def compute_embeddings(docs: list, model_name: str, embedding_key: str,
     print(f"\nComputing embeddings with {model_name}...")
     print(f"This may take a while for {len(docs)} documents...")
 
-    # Load model
-    device = 'cuda' if os.system('nvidia-smi > /dev/null 2>&1') == 0 else 'cpu'
-    print(f"Using device: {device}")
-
-    model = SentenceTransformer(model_name, device=device)
+    # Use pre-loaded model or load a new one
+    if model is None:
+        import torch
+        device = 'cpu'
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.init()
+                device = 'cuda'
+            except Exception as e:
+                print(f"CUDA available but initialization failed: {e}")
+                device = 'cpu'
+        print(f"Using device: {device}")
+        model = SentenceTransformer(model_name, device=device)
+    else:
+        print("Using pre-loaded embedding model")
 
     # For E5 models, prepend "query: " to documents
     if 'e5' in model_name.lower():
@@ -168,6 +184,22 @@ def load_embeddings(embedding_key: str) -> np.ndarray:
     return embeddings
 
 
+def load_embedding_model(embedding_key: str) -> SentenceTransformer:
+    """Load the SentenceTransformer model for KeyBERTInspired representation."""
+    import torch
+    model_name = EMBEDDING_MODELS[embedding_key]
+    print(f"\nLoading embedding model for KeyBERTInspired: {model_name}")
+    device = 'cpu'
+    if torch.cuda.is_available():
+        try:
+            torch.cuda.init()
+            device = 'cuda'
+        except Exception:
+            device = 'cpu'
+    print(f"Using device: {device}")
+    return SentenceTransformer(model_name, device=device)
+
+
 def create_umap_model(n_neighbors: int = 15, n_components: int = 5,
                       min_dist: float = 0.0, metric: str = 'cosine',
                       random_state: int = 42) -> UMAP:
@@ -195,7 +227,9 @@ def create_kmeans_model(n_clusters: int = 20, random_state: int = 42) -> KMeans:
 def create_bertopic_model(docs: list, embeddings: np.ndarray,
                           umap_model: UMAP, cluster_model: KMeans,
                           use_openai: bool = True,
-                          openai_client=None) -> tuple:
+                          openai_client=None,
+                          embedding_model: SentenceTransformer = None,
+                          include_keybert: bool = False) -> tuple:
     """
     Create and fit BERTopic model with pre-computed embeddings.
 
@@ -214,6 +248,12 @@ def create_bertopic_model(docs: list, embeddings: np.ndarray,
     # MMR for diverse keywords
     mmr_model = MaximalMarginalRelevance(diversity=0.5)
     representation_models["MMR"] = mmr_model
+
+    # KeyBERTInspired for semantic keyword extraction (requires embedding_model)
+    if include_keybert and embedding_model is not None:
+        keybert_model = KeyBERTInspired(top_n_words=15)
+        representation_models["KeyBERT"] = keybert_model
+        print("  KeyBERTInspired representation enabled")
 
     # OpenAI representation (optional)
     if use_openai and openai_client:
@@ -256,7 +296,7 @@ Titre du thème :"""
     topic_model = BERTopic(
         umap_model=umap_model,
         hdbscan_model=cluster_model,  # Using KMeans instead of HDBSCAN
-        embedding_model=None,  # Pre-computed embeddings
+        embedding_model=embedding_model,  # Pass model (None or SentenceTransformer)
         language="french",
         low_memory=True,
         representation_model=representation_models if representation_models else None,
@@ -264,8 +304,15 @@ Titre du thème :"""
     )
 
     # Fit the model
+    # If embedding_model is set, BERTopic computes embeddings internally (don't pass them)
+    # If embedding_model is None, we must pass pre-computed embeddings
     print("Fitting BERTopic...")
-    topics, probs = topic_model.fit_transform(docs, embeddings=embeddings)
+    if embedding_model is not None:
+        print("  Using embedding model (embeddings computed internally)")
+        topics, probs = topic_model.fit_transform(docs)
+    else:
+        print("  Using pre-computed embeddings")
+        topics, probs = topic_model.fit_transform(docs, embeddings=embeddings)
 
     print(f"Number of topics found: {len(set(topics)) - (1 if -1 in topics else 0)}")
     print(f"Documents in outlier topic (-1): {(np.array(topics) == -1).sum()}")
@@ -360,18 +407,19 @@ def display_topics(topic_model: BERTopic, num_words: int = 30) -> dict:
                     continue
             elif pd.isna(value):
                 continue
-                # Some representations are lists of tuples, some are strings
-                if isinstance(value, list):
-                    # It's a list of (word, score) tuples
-                    if value and isinstance(value[0], tuple):
-                        topic_data[col.lower()] = {
-                            'words': [w for w, s in value[:num_words]],
-                            'scores': [float(s) for w, s in value[:num_words]],
-                        }
-                    else:
-                        topic_data[col.lower()] = value
-                elif isinstance(value, str):
+
+            # Some representations are lists of tuples, some are strings
+            if isinstance(value, list):
+                # It's a list of (word, score) tuples
+                if value and isinstance(value[0], tuple):
+                    topic_data[col.lower()] = {
+                        'words': [w for w, s in value[:num_words]],
+                        'scores': [float(s) for w, s in value[:num_words]],
+                    }
+                else:
                     topic_data[col.lower()] = value
+            elif isinstance(value, str):
+                topic_data[col.lower()] = value
 
         # Also try to get representations directly from the model if available
         if hasattr(topic_model, 'topic_representations_'):
@@ -592,7 +640,9 @@ def run_experiment(embedding_key: str = 'camembert',
                    use_openai: bool = True,
                    num_words_per_topic: int = 30,
                    top_artists_per_topic: int = 20,
-                   top_n_artists_heatmap: int = 50):
+                   top_n_artists_heatmap: int = 50,
+                   include_keybert: bool = False,
+                   interactive_html: bool = False):
     """Run a complete BERTopic experiment."""
 
     print("\n" + "="*60)
@@ -617,26 +667,45 @@ def run_experiment(embedding_key: str = 'camembert',
     df = load_data(DATA_PATH, sample_size=sample_size)
     docs = df['lyrics_cleaned'].fillna("").astype(str).tolist()
 
-    # Get or compute embeddings
-    if compute_embeddings_flag:
-        # Don't save if sampling (would overwrite full embeddings)
-        should_save = sample_size is None
+    # Load embedding model first if KeyBERTInspired is requested
+    # (needed for both KeyBERT representation and embedding computation)
+    embedding_model = None
+    if include_keybert:
+        embedding_model = load_embedding_model(embedding_key)
+
+    # Get or compute embeddings for UMAP visualization
+    # When embedding_model is set, BERTopic computes embeddings internally (we still need them for UMAP viz)
+    if sample_size or include_keybert:
+        # Sample mode or KeyBERT mode: compute fresh, don't save
+        # Reuse embedding_model if already loaded (avoids loading twice)
+        print(f"Computing embeddings for {len(docs)} documents (not saving)")
         embeddings = compute_embeddings(
             docs,
             EMBEDDING_MODELS[embedding_key],
             embedding_key,
             batch_size=64,
-            save=should_save,
-            force=True  # Force recompute when flag is set
+            save=False,
+            force=True,
+            model=embedding_model  # Reuse if available
+        )
+    elif compute_embeddings_flag:
+        # Full run with explicit recompute: compute and save
+        embeddings = compute_embeddings(
+            docs,
+            EMBEDDING_MODELS[embedding_key],
+            embedding_key,
+            batch_size=64,
+            save=True,
+            force=True
         )
     else:
+        # Full run without KeyBERT: load pre-computed embeddings
         embeddings = load_embeddings(embedding_key)
-
-    # Verify embeddings match documents
-    if len(embeddings) != len(docs):
-        print(f"WARNING: Embeddings ({len(embeddings)}) don't match documents ({len(docs)})")
-        print("This may happen if using pre-computed embeddings with different sample size.")
-        print("Consider recomputing embeddings with --compute-embeddings flag.")
+        if len(embeddings) != len(docs):
+            raise ValueError(
+                f"Embeddings count ({len(embeddings)}) doesn't match documents ({len(docs)}). "
+                "Run with --compute-embeddings to recompute."
+            )
 
     # Create UMAP model and transform embeddings
     print("\nApplying UMAP dimensionality reduction...")
@@ -660,7 +729,9 @@ def run_experiment(embedding_key: str = 'camembert',
     # Create and fit BERTopic model
     topic_model, topics, probs = create_bertopic_model(
         docs, embeddings, umap_model, kmeans_model,
-        use_openai=use_openai, openai_client=openai_client
+        use_openai=use_openai, openai_client=openai_client,
+        embedding_model=embedding_model,
+        include_keybert=include_keybert
     )
 
     # Compute metrics
@@ -689,6 +760,8 @@ def run_experiment(embedding_key: str = 'camembert',
             'timestamp': timestamp,
             'run_dir': run_dir,
             'use_openai': use_openai,
+            'include_keybert': include_keybert,
+            'interactive_html': interactive_html,
         }
     }
 
@@ -701,6 +774,21 @@ def run_experiment(embedding_key: str = 'camembert',
     # Create visualizations
     create_visualizations(results, embeddings, umap_embeddings, topics, df, run_dir,
                          top_n_artists=top_n_artists_heatmap)
+
+    # Create interactive HTML visualization if requested
+    if interactive_html:
+        print("\n" + "="*60)
+        print("CREATING INTERACTIVE HTML VISUALIZATION")
+        print("="*60)
+        vis_data = prepare_visualization_data(
+            topic_model, topics, umap_embeddings, df, topics_desc,
+            top_artists=15, top_examples=5
+        )
+        html_path = os.path.join(run_dir, "interactive_bertopic.html")
+        create_interactive_bertopic_html(
+            vis_data, html_path,
+            title=f"BERTopic - {EMBEDDING_MODELS[embedding_key]}"
+        )
 
     return results, topic_model, topics, df
 
@@ -731,6 +819,10 @@ if __name__ == "__main__":
     parser.add_argument('--num-words', type=int, default=30, help='Number of words per topic')
     parser.add_argument('--top-artists-topic', type=int, default=20, help='Top N artists per topic')
     parser.add_argument('--top-artists-heatmap', type=int, default=50, help='Top N artists in heatmap')
+    parser.add_argument('--no-keybert', action='store_true',
+                        help='Disable KeyBERTInspired representation')
+    parser.add_argument('--no-interactive-html', action='store_true',
+                        help='Disable interactive HTML visualization')
 
     args = parser.parse_args()
 
@@ -753,4 +845,6 @@ if __name__ == "__main__":
         num_words_per_topic=args.num_words,
         top_artists_per_topic=args.top_artists_topic,
         top_n_artists_heatmap=args.top_artists_heatmap,
+        include_keybert=not args.no_keybert,
+        interactive_html=not args.no_interactive_html,
     )
