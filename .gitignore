@@ -4,6 +4,7 @@ old_draft_code/*
 results/verses*
 results/visualisation*
 data/*.csv
+!data/20260123_filter_verses_lrfaf_corpus.csv
 data/old/*
 config.yaml
 
