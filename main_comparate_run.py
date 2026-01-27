@@ -367,7 +367,7 @@ def main():
                     remove_stopwords=True,
                     lemmatize=False,
                     batch_size=1000,
-                    n_process=-1  # Use all CPUs
+                    n_process=12
                 )
 
             corpus_tokens = tokenizer.batch_tokenize(documents_for_tokenization, verbose=True)

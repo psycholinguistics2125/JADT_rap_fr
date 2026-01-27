@@ -7,7 +7,11 @@ data/*.csv
 !data/20260123_filter_verses_lrfaf_corpus.csv
 data/old/*
 config.yaml
-
+models/embeddings/*.npy
+results/IRAMUTEQ/original_run_from_pierre_corpus_rap2_alceste_1/*
+results/LDA/*.pkl
+results/LDA/*.dict
+*.zip
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

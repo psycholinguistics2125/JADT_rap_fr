@@ -1,0 +1,104 @@
+{
+  "timestamp": "20260127_120140",
+  "inputs": {
+    "lda_folder": "results/LDA/run_20260126_124051_bigram_only",
+    "bertopic_folder": "results/BERTopic/run_20260126_141647_mpnet",
+    "iramuteq_folder": "results/IRAMUTEQ/evaluation_20260126_124001",
+    "iramuteq_original": "results/IRAMUTEQ/original_run_from_pierre_corpus_rap2_alceste_1"
+  },
+  "n_aligned_documents": 115785,
+  "agreement": {
+    "bertopic_vs_lda": {
+      "ari": 0.007643182803541885,
+      "nmi": 0.01493424458325772,
+      "ami": 0.014387792106568282,
+      "n_one_to_one": 0
+    },
+    "bertopic_vs_iramuteq": {
+      "ari": 0.044230962063539984,
+      "nmi": 0.10236909782590385,
+      "ami": 0.10187502791746025,
+      "n_one_to_one": 0
+    },
+    "lda_vs_iramuteq": {
+      "ari": 0.004812627276491752,
+      "nmi": 0.015003597706553004,
+      "ami": 0.01442878629476848,
+      "n_one_to_one": 0
+    }
+  },
+  "artist_separation": {
+    "bertopic": {
+      "cramers_v": 0.2079105249548394,
+      "pct_specialists": 2.18978102189781,
+      "pct_moderate": 11.496350364963504,
+      "pct_generalists": 86.3138686131387,
+      "mean_entropy": 0
+    },
+    "lda": {
+      "cramers_v": 0.11417615876290063,
+      "pct_specialists": 0.5474452554744526,
+      "pct_moderate": 22.445255474452555,
+      "pct_generalists": 77.00729927007299,
+      "mean_entropy": 0
+    },
+    "iramuteq": {
+      "cramers_v": 0.3853811622617378,
+      "pct_specialists": 12.226277372262775,
+      "pct_moderate": 44.34306569343065,
+      "pct_generalists": 43.43065693430657,
+      "mean_entropy": 0
+    }
+  },
+  "temporal": {
+    "bertopic": {
+      "mean_variance": 0.0006766168550087636,
+      "most_variable_topic": "3",
+      "max_variance": 0.0035655518969602883
+    },
+    "lda": {
+      "mean_variance": 3.2158753845673e-05,
+      "most_variable_topic": "16",
+      "max_variance": 9.098802460088083e-05
+    },
+    "iramuteq": {
+      "mean_variance": 0.0019169829770840266,
+      "most_variable_topic": "9",
+      "max_variance": 0.015928631580087185
+    }
+  },
+  "vocabulary": {
+    "distinctiveness": {
+      "bertopic": 0.5061747437533783,
+      "lda": 0.9975414095853619,
+      "iramuteq": 0.9964219257059621
+    },
+    "bertopic_vs_lda": {
+      "mean_jaccard": 0.00268,
+      "mean_overlap_coef": 0.0054199999999999995
+    }
+  },
+  "intra_topic_distances": {
+    "bertopic": {
+      "js_mean": 0.8195218790735671,
+      "js_std": 0.003085072411790067,
+      "labbe_mean": 0.9777530059222572,
+      "labbe_std": 0.00491489507535523,
+      "n_topics": 20
+    },
+    "lda": {
+      "js_mean": 0.819670132199608,
+      "js_std": 0.0026696949776822904,
+      "labbe_mean": 0.9787630593048997,
+      "labbe_std": 0.005342794475837438,
+      "n_topics": 20
+    },
+    "iramuteq": {
+      "js_mean": 0.8181681134473484,
+      "js_std": 0.008089596764151996,
+      "labbe_mean": 0.977709507438032,
+      "labbe_std": 0.012892494499303724,
+      "n_topics": 20
+    }
+  }
+}

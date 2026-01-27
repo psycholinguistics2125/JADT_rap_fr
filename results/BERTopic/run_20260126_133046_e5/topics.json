@@ -1,0 +1,1242 @@
+{
+  "0": {
+    "count": 9198,
+    "top_words": "la, les, le, est, pas, de, on, dans, des, tu",
+    "ctfidf": {
+      "words": [
+        "la",
+        "les",
+        "le",
+        "est",
+        "pas",
+        "de",
+        "on",
+        "dans",
+        "des",
+        "tu"
+      ],
+      "scores": [
+        0.02935982718036854,
+        0.026641807897063934,
+        0.025727308101379666,
+        0.024955212428721885,
+        0.024931963980302254,
+        0.024908225000980524,
+        0.022645400899760134,
+        0.021042268594782473,
+        0.020697906536194723,
+        0.020585848250745203
+      ]
+    },
+    "mmr": [
+      "dans",
+      "des",
+      "tu",
+      "en",
+      "comme",
+      "suis",
+      "ça",
+      "pour",
+      "sur",
+      "une"
+    ],
+    "keybert": [
+      "dans",
+      "jamais",
+      "avec",
+      "pour",
+      "rien",
+      "tous",
+      "comme",
+      "sur",
+      "je",
+      "tête",
+      "tout",
+      "de",
+      "vous",
+      "deux",
+      "pas"
+    ],
+    "openai": [
+      "\"Quotidien des Luttes et Résilience\""
+    ]
+  },
+  "1": {
+    "count": 8920,
+    "top_words": "la, dans, est, le, on, pas, les, suis, ai, tu",
+    "ctfidf": {
+      "words": [
+        "la",
+        "dans",
+        "est",
+        "le",
+        "on",
+        "pas",
+        "les",
+        "suis",
+        "ai",
+        "tu"
+      ],
+      "scores": [
+        0.03439531804931483,
+        0.02607986181585863,
+        0.025474794494218345,
+        0.023905059039219027,
+        0.022933043682484795,
+        0.022778175361943747,
+        0.021839461801050335,
+        0.021648408168080426,
+        0.019581512114765207,
+        0.017878732653664284
+      ]
+    },
+    "mmr": [
+      "dans",
+      "pas",
+      "suis",
+      "elle",
+      "de",
+      "ouais",
+      "ça",
+      "comme",
+      "sur",
+      "pour"
+    ],
+    "keybert": [
+      "avec",
+      "dans",
+      "pour",
+      "jamais",
+      "deux",
+      "connais",
+      "tous",
+      "pas",
+      "ça",
+      "rien",
+      "fait",
+      "non",
+      "comme",
+      "de",
+      "en"
+    ],
+    "openai": [
+      "\"Survie et Résilience dans la Rue\""
+    ]
+  },
+  "2": {
+    "count": 8885,
+    "top_words": "je, pas, tu, que, ai, moi, est, de, qu, la",
+    "ctfidf": {
+      "words": [
+        "je",
+        "pas",
+        "tu",
+        "que",
+        "ai",
+        "moi",
+        "est",
+        "de",
+        "qu",
+        "la"
+      ],
+      "scores": [
+        0.038278067351734314,
+        0.028298981815382217,
+        0.028014045327177033,
+        0.026849002011523477,
+        0.02676214892045882,
+        0.0259169566836509,
+        0.025897660857744073,
+        0.023801477213961447,
+        0.022507860902218523,
+        0.022488379236160976
+      ]
+    },
+    "mmr": [
+      "tu",
+      "moi",
+      "me",
+      "tout",
+      "en",
+      "mais",
+      "plus",
+      "suis",
+      "pour",
+      "dans"
+    ],
+    "keybert": [
+      "cœur",
+      "toujours",
+      "vous",
+      "jamais",
+      "pour",
+      "être",
+      "tous",
+      "amour",
+      "encore",
+      "avec",
+      "étais",
+      "juste",
+      "tout",
+      "même",
+      "pourquoi"
+    ],
+    "openai": [
+      "\"Amour, Doute et Solitude\""
+    ]
+  },
+  "3": {
+    "count": 7513,
+    "top_words": "de, la, les, pas, est, le, et, qu, un, que",
+    "ctfidf": {
+      "words": [
+        "de",
+        "la",
+        "les",
+        "pas",
+        "est",
+        "le",
+        "et",
+        "qu",
+        "un",
+        "que"
+      ],
+      "scores": [
+        0.029185177708247585,
+        0.026969536067052987,
+        0.02535932869363463,
+        0.02403753319570278,
+        0.023798231891815434,
+        0.023680482028950144,
+        0.023234275786403278,
+        0.02280210793299834,
+        0.022560109465437964,
+        0.021976994155770802
+      ]
+    },
+    "mmr": [
+      "pas",
+      "des",
+      "en",
+      "dans",
+      "pour",
+      "me",
+      "plus",
+      "comme",
+      "suis",
+      "ça"
+    ],
+    "keybert": [
+      "jamais",
+      "dans",
+      "avec",
+      "pour",
+      "tous",
+      "vous",
+      "rien",
+      "sur",
+      "dit",
+      "ça",
+      "monde",
+      "tout",
+      "pas",
+      "fait",
+      "de"
+    ],
+    "openai": [
+      "\"Confrontation avec la Réalité et Identité\""
+    ]
+  },
+  "4": {
+    "count": 6715,
+    "top_words": "de, le, la, et, les, je, un, est, que, des",
+    "ctfidf": {
+      "words": [
+        "de",
+        "le",
+        "la",
+        "et",
+        "les",
+        "je",
+        "un",
+        "est",
+        "que",
+        "des"
+      ],
+      "scores": [
+        0.03573282809560539,
+        0.02707156475053695,
+        0.026957479214622233,
+        0.026158344497400326,
+        0.0259829705695048,
+        0.02398189394943329,
+        0.023765611789520122,
+        0.023204214045274223,
+        0.022781938707706572,
+        0.02188202010572029
+      ]
+    },
+    "mmr": [
+      "de",
+      "les",
+      "est",
+      "dans",
+      "une",
+      "pas",
+      "pour",
+      "me",
+      "mais",
+      "mes"
+    ],
+    "keybert": [
+      "monde",
+      "jamais",
+      "cœur",
+      "vous",
+      "pour",
+      "dans",
+      "tous",
+      "rien",
+      "sur",
+      "avec",
+      "nous",
+      "de",
+      "toujours",
+      "je",
+      "être"
+    ],
+    "openai": [
+      "\"Quête de Bonheur et Désillusion\""
+    ]
+  },
+  "5": {
+    "count": 6497,
+    "top_words": "de, les, la, le, est, pas, et, un, des, que",
+    "ctfidf": {
+      "words": [
+        "de",
+        "les",
+        "la",
+        "le",
+        "est",
+        "pas",
+        "et",
+        "un",
+        "des",
+        "que"
+      ],
+      "scores": [
+        0.030465719903905314,
+        0.027459574627281994,
+        0.027449651376524782,
+        0.025877904225113015,
+        0.02494124940159032,
+        0.023122395093815973,
+        0.02301425500744031,
+        0.022838453707539622,
+        0.022723864376324072,
+        0.020114811930718453
+      ]
+    },
+    "mmr": [
+      "de",
+      "pas",
+      "dans",
+      "pour",
+      "comme",
+      "une",
+      "suis",
+      "sur",
+      "ça",
+      "mais"
+    ],
+    "keybert": [
+      "dans",
+      "jamais",
+      "donc",
+      "rap",
+      "pour",
+      "avec",
+      "de",
+      "vous",
+      "sur",
+      "dit",
+      "rien",
+      "monde",
+      "comme",
+      "toujours",
+      "ça"
+    ],
+    "openai": [
+      "\"Résilience et Rébellion des Jeunes\""
+    ]
+  },
+  "6": {
+    "count": 6415,
+    "top_words": "de, les, la, le, est, et, des, on, qui, un",
+    "ctfidf": {
+      "words": [
+        "de",
+        "les",
+        "la",
+        "le",
+        "est",
+        "et",
+        "des",
+        "on",
+        "qui",
+        "un"
+      ],
+      "scores": [
+        0.0362326870784811,
+        0.03301579502605106,
+        0.030195208947446227,
+        0.026394224311104216,
+        0.02596855813223023,
+        0.02593767520383349,
+        0.02572994786341961,
+        0.0233454404886879,
+        0.022249838182818036,
+        0.021472135708770563
+      ]
+    },
+    "mmr": [
+      "de",
+      "les",
+      "est",
+      "on",
+      "pour",
+      "dans",
+      "nous",
+      "une",
+      "plus",
+      "ça"
+    ],
+    "keybert": [
+      "pour",
+      "sur",
+      "vous",
+      "tous",
+      "dans",
+      "avec",
+      "de",
+      "en",
+      "nous",
+      "monde",
+      "je",
+      "rien",
+      "que",
+      "guerre",
+      "fait"
+    ],
+    "openai": [
+      "\"Révolte Sociale et Désespoir Urbain\""
+    ]
+  },
+  "7": {
+    "count": 6245,
+    "top_words": "le, est, de, les, la, et, on, pas, un, en",
+    "ctfidf": {
+      "words": [
+        "le",
+        "est",
+        "de",
+        "les",
+        "la",
+        "et",
+        "on",
+        "pas",
+        "un",
+        "en"
+      ],
+      "scores": [
+        0.02940697401722155,
+        0.02840707572605701,
+        0.027133959999685157,
+        0.026986899671923126,
+        0.025644181513760352,
+        0.0231344211151687,
+        0.02161577616276468,
+        0.020893011955155274,
+        0.020233634863694474,
+        0.018762023662349952
+      ]
+    },
+    "mmr": [
+      "est",
+      "on",
+      "pour",
+      "rap",
+      "des",
+      "tu",
+      "comme",
+      "dans",
+      "ça",
+      "suis"
+    ],
+    "keybert": [
+      "rappe",
+      "rap",
+      "dans",
+      "donc",
+      "yo",
+      "rien",
+      "avec",
+      "pour",
+      "de",
+      "vous",
+      "monde",
+      "ça",
+      "tous",
+      "je",
+      "sur"
+    ],
+    "openai": [
+      "\"Combat et Résilience dans le Rap\""
+    ]
+  },
+  "8": {
+    "count": 6063,
+    "top_words": "la, pas, est, les, le, dans, on, suis, ai, tu",
+    "ctfidf": {
+      "words": [
+        "la",
+        "pas",
+        "est",
+        "les",
+        "le",
+        "dans",
+        "on",
+        "suis",
+        "ai",
+        "tu"
+      ],
+      "scores": [
+        0.03391391233282121,
+        0.02606401031906251,
+        0.0255730827793198,
+        0.025136574353502136,
+        0.02505576980066352,
+        0.024590171861963748,
+        0.024154002468818752,
+        0.020636994906601185,
+        0.020590829989872494,
+        0.02056963848736341
+      ]
+    },
+    "mmr": [
+      "pas",
+      "dans",
+      "suis",
+      "de",
+      "pour",
+      "sur",
+      "comme",
+      "ouais",
+      "fait",
+      "elle"
+    ],
+    "keybert": [
+      "donc",
+      "avec",
+      "pour",
+      "dans",
+      "jamais",
+      "tous",
+      "de",
+      "pas",
+      "tête",
+      "par",
+      "tout",
+      "sur",
+      "comme",
+      "parle",
+      "mais"
+    ],
+    "openai": [
+      "\"Rapport à la Violence et Résilience\""
+    ]
+  },
+  "9": {
+    "count": 5577,
+    "top_words": "je, que, tu, pas, elle, de, est, qu, ai, la",
+    "ctfidf": {
+      "words": [
+        "je",
+        "que",
+        "tu",
+        "pas",
+        "elle",
+        "de",
+        "est",
+        "qu",
+        "ai",
+        "la"
+      ],
+      "scores": [
+        0.03351963656541524,
+        0.02711830072212707,
+        0.026644275212618872,
+        0.025753353900472998,
+        0.025294279184190607,
+        0.0252560196923062,
+        0.024935309037644376,
+        0.02450191306706192,
+        0.024075623885864518,
+        0.022695219935707094
+      ]
+    },
+    "mmr": [
+      "tu",
+      "pas",
+      "elle",
+      "me",
+      "moi",
+      "en",
+      "plus",
+      "pour",
+      "dans",
+      "tout"
+    ],
+    "keybert": [
+      "dans",
+      "cœur",
+      "jamais",
+      "avec",
+      "pour",
+      "toujours",
+      "rien",
+      "être",
+      "tous",
+      "comme",
+      "monde",
+      "sur",
+      "nous",
+      "cette",
+      "même"
+    ],
+    "openai": [
+      "**Amour et Identité dans la Vie Urbaine**"
+    ]
+  },
+  "10": {
+    "count": 5549,
+    "top_words": "la, pas, les, est, de, le, qu, ai, des, on",
+    "ctfidf": {
+      "words": [
+        "la",
+        "pas",
+        "les",
+        "est",
+        "de",
+        "le",
+        "qu",
+        "ai",
+        "des",
+        "on"
+      ],
+      "scores": [
+        0.029192680797135377,
+        0.028165687980056843,
+        0.025192862728293696,
+        0.024067318199257476,
+        0.023954451017441467,
+        0.023227314920993846,
+        0.022264154897959694,
+        0.022141234888841014,
+        0.021599012361001188,
+        0.021590498783559457
+      ]
+    },
+    "mmr": [
+      "pas",
+      "est",
+      "de",
+      "dans",
+      "suis",
+      "pour",
+      "ça",
+      "comme",
+      "me",
+      "plus"
+    ],
+    "keybert": [
+      "jamais",
+      "dans",
+      "avec",
+      "monde",
+      "rien",
+      "sur",
+      "pour",
+      "vous",
+      "tous",
+      "en",
+      "deux",
+      "pas",
+      "toujours",
+      "de",
+      "par"
+    ],
+    "openai": [
+      "\"Trahison et Loyauté dans la Rue\""
+    ]
+  },
+  "11": {
+    "count": 5237,
+    "top_words": "la, dans, est, on, le, ouais, suis, les, pas, oh",
+    "ctfidf": {
+      "words": [
+        "la",
+        "dans",
+        "est",
+        "on",
+        "le",
+        "ouais",
+        "suis",
+        "les",
+        "pas",
+        "oh"
+      ],
+      "scores": [
+        0.03735288069152938,
+        0.029427456924041952,
+        0.02728861554422738,
+        0.02607248598774351,
+        0.02483373376999612,
+        0.023949907099893277,
+        0.023469308934372293,
+        0.023171801610023284,
+        0.02098521396768981,
+        0.020476037135806043
+      ]
+    },
+    "mmr": [
+      "dans",
+      "ouais",
+      "suis",
+      "pas",
+      "han",
+      "de",
+      "ça",
+      "pour",
+      "comme",
+      "moi"
+    ],
+    "keybert": [
+      "dans",
+      "pour",
+      "avec",
+      "toujours",
+      "tous",
+      "deux",
+      "sur",
+      "ça",
+      "de",
+      "comme",
+      "tout",
+      "même",
+      "fait",
+      "suis",
+      "toute"
+    ],
+    "openai": [
+      "\"Recherche de Reconnaissance et de Monnaie\""
+    ]
+  },
+  "12": {
+    "count": 5039,
+    "top_words": "de, la, le, on, est, je, les, que, et, pas",
+    "ctfidf": {
+      "words": [
+        "de",
+        "la",
+        "le",
+        "on",
+        "est",
+        "je",
+        "les",
+        "que",
+        "et",
+        "pas"
+      ],
+      "scores": [
+        0.029547495352764595,
+        0.02863539151124385,
+        0.027802118241148886,
+        0.0269255493235637,
+        0.02608224559057927,
+        0.02499693369381868,
+        0.02492650953848912,
+        0.02237018318439611,
+        0.02214356332785839,
+        0.021949170104425028
+      ]
+    },
+    "mmr": [
+      "de",
+      "on",
+      "est",
+      "dans",
+      "pour",
+      "mais",
+      "me",
+      "tout",
+      "nous",
+      "une"
+    ],
+    "keybert": [
+      "cœur",
+      "vous",
+      "avec",
+      "vivre",
+      "pour",
+      "monde",
+      "nous",
+      "tous",
+      "jamais",
+      "de",
+      "voir",
+      "sur",
+      "dans",
+      "pourquoi",
+      "même"
+    ],
+    "openai": [
+      "\"Quête d'Identité et Lutte Urbaine\""
+    ]
+  },
+  "13": {
+    "count": 4729,
+    "top_words": "la, est, on, pas, ouais, le, oh, dans, yeah, moi",
+    "ctfidf": {
+      "words": [
+        "la",
+        "est",
+        "on",
+        "pas",
+        "ouais",
+        "le",
+        "oh",
+        "dans",
+        "yeah",
+        "moi"
+      ],
+      "scores": [
+        0.034298423983862965,
+        0.032085260615173715,
+        0.029484004952149655,
+        0.02752652277489572,
+        0.02683815236338694,
+        0.025462300541186127,
+        0.02433434357590267,
+        0.022160961877321535,
+        0.022061302579403835,
+        0.021041959366687117
+      ]
+    },
+    "mmr": [
+      "la",
+      "est",
+      "ouais",
+      "dans",
+      "moi",
+      "suis",
+      "ça",
+      "tout",
+      "pour",
+      "que"
+    ],
+    "keybert": [
+      "avec",
+      "comme",
+      "vous",
+      "pour",
+      "même",
+      "en",
+      "de",
+      "ça",
+      "je",
+      "tous",
+      "mais",
+      "dans",
+      "fait",
+      "pas",
+      "danse"
+    ],
+    "openai": [
+      "\"Quotidien Rugueux et Résilience Urbaine\""
+    ]
+  },
+  "14": {
+    "count": 4546,
+    "top_words": "les, la, de, le, est, on, des, et, dans, pas",
+    "ctfidf": {
+      "words": [
+        "les",
+        "la",
+        "de",
+        "le",
+        "est",
+        "on",
+        "des",
+        "et",
+        "dans",
+        "pas"
+      ],
+      "scores": [
+        0.03352285702741488,
+        0.03155668609068132,
+        0.02955034251662145,
+        0.026675343007303193,
+        0.026280985357854395,
+        0.02525652462619005,
+        0.023808168483845645,
+        0.021902256642482573,
+        0.021873183358435227,
+        0.021492793107944826
+      ]
+    },
+    "mmr": [
+      "les",
+      "de",
+      "est",
+      "dans",
+      "pas",
+      "pour",
+      "ça",
+      "comme",
+      "une",
+      "suis"
+    ],
+    "keybert": [
+      "pour",
+      "jamais",
+      "tous",
+      "dans",
+      "avec",
+      "sur",
+      "de",
+      "nous",
+      "vous",
+      "deux",
+      "rue",
+      "rien",
+      "monde",
+      "par",
+      "tête"
+    ],
+    "openai": [
+      "\"Survie et Résilience en Milieu Urbain\""
+    ]
+  },
+  "15": {
+    "count": 4352,
+    "top_words": "la, de, les, le, pas, est, on, un, des, et",
+    "ctfidf": {
+      "words": [
+        "la",
+        "de",
+        "les",
+        "le",
+        "pas",
+        "est",
+        "on",
+        "un",
+        "des",
+        "et"
+      ],
+      "scores": [
+        0.02851469210956618,
+        0.027251300558906545,
+        0.026069187881095236,
+        0.025252415621258382,
+        0.024995520414004792,
+        0.024735495056097765,
+        0.022822825610548957,
+        0.022449998284155566,
+        0.021376856691633722,
+        0.02120357115444595
+      ]
+    },
+    "mmr": [
+      "de",
+      "les",
+      "pas",
+      "dans",
+      "pour",
+      "comme",
+      "une",
+      "suis",
+      "sur",
+      "me"
+    ],
+    "keybert": [
+      "jamais",
+      "avec",
+      "donc",
+      "pour",
+      "dans",
+      "toujours",
+      "monde",
+      "fait",
+      "vous",
+      "de",
+      "sur",
+      "rien",
+      "comme",
+      "tout",
+      "tous"
+    ],
+    "openai": [
+      "\"Quotidien Rude et Quête de Liberté\""
+    ]
+  },
+  "16": {
+    "count": 4137,
+    "top_words": "elle, je, moi, tu, oh, pas, est, la, ai, me",
+    "ctfidf": {
+      "words": [
+        "elle",
+        "je",
+        "moi",
+        "tu",
+        "oh",
+        "pas",
+        "est",
+        "la",
+        "ai",
+        "me"
+      ],
+      "scores": [
+        0.03403313843014661,
+        0.031228101175949194,
+        0.030700407537640934,
+        0.029619320511902105,
+        0.029277789783180873,
+        0.027333530711702293,
+        0.026257573460251406,
+        0.023538634741640505,
+        0.023117409236509602,
+        0.02128641216584538
+      ]
+    },
+    "mmr": [
+      "elle",
+      "moi",
+      "me",
+      "tout",
+      "yeah",
+      "en",
+      "ça",
+      "dans",
+      "ouais",
+      "plus"
+    ],
+    "keybert": [
+      "cœur",
+      "bébé",
+      "pour",
+      "jamais",
+      "avec",
+      "dans",
+      "nuit",
+      "amour",
+      "soir",
+      "sur",
+      "tête",
+      "comme",
+      "en",
+      "je",
+      "rien"
+    ],
+    "openai": [
+      "\"Passion Amoureuse et Relations Complexes\""
+    ]
+  },
+  "17": {
+    "count": 3531,
+    "top_words": "négro, comme, la, dans, les, le, de, est, on, suis",
+    "ctfidf": {
+      "words": [
+        "négro",
+        "comme",
+        "la",
+        "dans",
+        "les",
+        "le",
+        "de",
+        "est",
+        "on",
+        "suis"
+      ],
+      "scores": [
+        0.04996730437608049,
+        0.028644579914813985,
+        0.02763403634492115,
+        0.026722811760165773,
+        0.02628759130912751,
+        0.026096069614756082,
+        0.02298148312625013,
+        0.022286655619357672,
+        0.020390833348642168,
+        0.020301473942257713
+      ]
+    },
+    "mmr": [
+      "négro",
+      "comme",
+      "dans",
+      "suis",
+      "des",
+      "en",
+      "pour",
+      "ekip",
+      "moi",
+      "ça"
+    ],
+    "keybert": [
+      "négro",
+      "nigga",
+      "négros",
+      "noir",
+      "pour",
+      "dans",
+      "avec",
+      "veut",
+      "fuck",
+      "rien",
+      "ne",
+      "veulent",
+      "je",
+      "sur",
+      "veux"
+    ],
+    "openai": [
+      "\"Survie et Affirmation dans la Rue\""
+    ]
+  },
+  "18": {
+    "count": 3527,
+    "top_words": "est, on, la, pas, les, le, de, tu, ça, et",
+    "ctfidf": {
+      "words": [
+        "est",
+        "on",
+        "la",
+        "pas",
+        "les",
+        "le",
+        "de",
+        "tu",
+        "ça",
+        "et"
+      ],
+      "scores": [
+        0.029733298174160247,
+        0.028334237113465985,
+        0.027886015762601312,
+        0.02633691396556523,
+        0.02513335223930202,
+        0.024977499358776255,
+        0.0243052353102291,
+        0.022561911910868673,
+        0.019989834124870827,
+        0.019979735005329034
+      ]
+    },
+    "mmr": [
+      "pas",
+      "des",
+      "en",
+      "pour",
+      "ouais",
+      "suis",
+      "faire",
+      "vous",
+      "moi",
+      "tout"
+    ],
+    "keybert": [
+      "vous",
+      "donc",
+      "pour",
+      "sur",
+      "avec",
+      "dans",
+      "fait",
+      "ça",
+      "pas",
+      "monde",
+      "nous",
+      "de",
+      "tous",
+      "comme",
+      "rien"
+    ],
+    "openai": [
+      "\"Quête de Sursistance et Réflexion Sociale\""
+    ]
+  },
+  "19": {
+    "count": 3130,
+    "top_words": "la, pas, est, ai, suis, on, les, tu, qu, le",
+    "ctfidf": {
+      "words": [
+        "la",
+        "pas",
+        "est",
+        "ai",
+        "suis",
+        "on",
+        "les",
+        "tu",
+        "qu",
+        "le"
+      ],
+      "scores": [
+        0.02926057614065205,
+        0.028954372778079728,
+        0.025610953674455712,
+        0.024689199196528476,
+        0.022224394223137406,
+        0.022013180030707204,
+        0.021874955775710907,
+        0.021677180025435908,
+        0.021670309075854932,
+        0.021301442823429922
+      ]
+    },
+    "mmr": [
+      "pas",
+      "suis",
+      "tu",
+      "dans",
+      "que",
+      "me",
+      "pour",
+      "ça",
+      "mais",
+      "tout"
+    ],
+    "keybert": [
+      "dans",
+      "donc",
+      "avec",
+      "pour",
+      "cœur",
+      "jamais",
+      "deux",
+      "tous",
+      "de",
+      "je",
+      "rien",
+      "en",
+      "étais",
+      "fait",
+      "par"
+    ],
+    "openai": [
+      "\"Réalité Rude et Aspirations Urbaines\""
+    ]
+  }
+}
