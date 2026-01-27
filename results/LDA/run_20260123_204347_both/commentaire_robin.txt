@@ -1,6 +1,0 @@
-Ici c'est assez intéressant, dans la visualisation Py LDA vis, nous voyons que les topics sont bien séparés, d'ailleurs, la métrique de cohérence est intéressante Cv=0.3
-
-Par contre le topic modeling a littéralement fait une séparation très étonnate entre deux gros topics 3 et 6 qui sont les plus gros ou il a séparer les plus gros artistes entre rap à text vs rap moins lyricistes. On peut remarquer également que le topic 3 est cnetré sr le future avec des term comme demain, j'aimerais, envie, m'évader. ALors que le topic 6 est remplie de forme au passé, tel que j'avais, j'étais, m'as, savais, hier etc..
-
-
-
