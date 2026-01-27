@@ -118,8 +118,8 @@ Examples:
         help='Minimum documents per artist for analysis (default: 10)'
     )
     parser.add_argument(
-        '--include-sankey', action='store_true',
-        help='Generate Sankey diagrams (requires plotly)'
+        '--no-sankey', action='store_true',
+        help='Skip Sankey diagram generation (requires plotly)'
     )
     parser.add_argument(
         '--no-figures', action='store_true',
@@ -459,7 +459,7 @@ def main():
             print(f"    Saved: {output_path.name}")
 
         # Sankey diagrams
-        if args.include_sankey:
+        if not args.no_sankey:
             print("    Generating Sankey diagrams...")
             create_sankey_diagram(
                 bertopic_topics, lda_topics,
