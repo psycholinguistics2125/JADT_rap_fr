@@ -24,7 +24,6 @@ from utils.utils_evaluation import (
     save_artist_metrics,
     save_temporal_metrics,
     create_topic_distribution_plot,
-    create_topic_evolution_heatmap,
     create_artist_topics_heatmap,
     create_artist_specialization_plot,
     create_biannual_js_plot,
@@ -184,11 +183,7 @@ def create_visualizations(results: dict, topics: np.ndarray, df: pd.DataFrame,
     # 2. Topic distribution (using shared utility)
     create_topic_distribution_plot(topics, run_dir, title="IRAMUTEQ Class Distribution")
 
-    # 3. Topic evolution heatmap (using shared utility)
-    create_topic_evolution_heatmap(results['temporal_separation'], run_dir,
-                                    title="IRAMUTEQ Class Prevalence Over Time")
-
-    # 4. Year-class heatmap (using shared utility)
+    # 3. Year-class heatmap (shows class distribution over time, using shared utility)
     create_year_topic_heatmap(topics, df, run_dir,
                                title="IRAMUTEQ Class Distribution by Year")
 

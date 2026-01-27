@@ -14,6 +14,7 @@ import json
 import pickle
 import warnings
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -36,7 +37,6 @@ from utils.utils_evaluation import (
     save_artist_metrics,
     save_temporal_metrics,
     create_topic_distribution_plot,
-    create_topic_evolution_heatmap,
     create_artist_topics_heatmap,
     create_artist_specialization_plot,
     create_biannual_js_plot,
@@ -47,8 +47,9 @@ from utils.utils_evaluation import (
 warnings.filterwarnings('ignore')
 
 # Configuration
-RESULTS_DIR = "/home/robin/Code_repo/psycholinguistic2125/JADT_rap_fr/results/LDA"
-DATA_PATH = "/home/robin/Code_repo/psycholinguistic2125/JADT_rap_fr/data/20260123_filter_verses_lrfaf_corpus.csv"
+PROJECT_ROOT = Path(__file__).resolve().parent
+RESULTS_DIR = str(PROJECT_ROOT / "results" / "LDA")
+DATA_PATH = str(PROJECT_ROOT / "data" / "20260123_filter_verses_lrfaf_corpus.csv")
 
 # Ensure results directory exists
 os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -217,7 +218,10 @@ def create_corpus(df: pd.DataFrame, text_column: str = 'lyrics_cleaned',
         if (idx + 1) % 10000 == 0:
             print(f"  Processed {idx + 1}/{len(raw_texts)} documents...")
 
-    df_filtered = df.iloc[valid_indices].reset_index(drop=True)
+    df_filtered = df.iloc[valid_indices].copy()
+    # Store original indices before resetting
+    df_filtered['original_index'] = valid_indices
+    df_filtered = df_filtered.reset_index(drop=True)
     print(f"Documents after filtering: {len(texts)}")
 
     # Create n-grams based on mode
@@ -485,14 +489,16 @@ def save_results(results: dict, lda_model, dictionary, corpus, df, doc_topics, d
     save_temporal_metrics(results['temporal_separation'], run_dir)
     save_artist_metrics(results['artist_separation'], run_dir)
 
-    # Save document assignments
+    # Save document assignments (including original_index for alignment with other models)
     doc_assign_path = os.path.join(run_dir, "doc_assignments.csv")
     doc_df = df.copy()
     doc_df['dominant_topic'] = dominant_topics
     doc_df['dominant_topic_prob'] = doc_topics.max(axis=1)
-    doc_df[['artist', 'title', 'year', 'dominant_topic', 'dominant_topic_prob']].to_csv(
-        doc_assign_path, index=False
-    )
+    # Include original_index if available (for proper alignment with BERTopic/IRAMUTEQ)
+    cols_to_save = ['artist', 'title', 'year', 'dominant_topic', 'dominant_topic_prob']
+    if 'original_index' in doc_df.columns:
+        cols_to_save.insert(0, 'original_index')
+    doc_df[cols_to_save].to_csv(doc_assign_path, index=False)
     print(f"  Document assignments saved to: {doc_assign_path}")
 
     # Create pyLDAvis if requested
@@ -526,14 +532,10 @@ def create_visualizations(results: dict, doc_topics: np.ndarray, dominant_topics
     plt.close()
     print("  Saved coherence plot")
 
-    # 2. Topic evolution heatmap (using shared utility)
-    create_topic_evolution_heatmap(results['temporal_separation'], run_dir,
-                                    title="LDA Topic Prevalence Over Time")
-
-    # 3. Dominant topic distribution (using shared utility)
+    # 2. Dominant topic distribution (using shared utility)
     create_topic_distribution_plot(dominant_topics, run_dir, title="LDA Dominant Topic Distribution")
 
-    # 4. Year-topic heatmap (using shared utility)
+    # 3. Year-topic heatmap (shows topic distribution over time, using shared utility)
     create_year_topic_heatmap(dominant_topics, df, run_dir,
                                title="LDA Topic Distribution by Year")
 

@@ -19,6 +19,8 @@ All three scripts produce standardized evaluation metrics and visualizations for
 5. [Shared Evaluation Metrics](#shared-evaluation-metrics)
 6. [Output Files](#output-files)
 7. [Running Multiple Experiments](#running-multiple-experiments)
+8. [Model Comparison Script](#model-comparison-script)
+9. [Report Utilities](#report-utilities)
 
 ---
 
@@ -132,7 +134,7 @@ python build_and_evaluate_LDA.py --load-corpus results/LDA/corpus.pkl
 
 ### Description
 
-`build_and_evaluate_bertopic.py` builds a BERTopic model using pre-trained sentence embeddings. It supports multiple embedding models optimized for French text and uses UMAP + HDBSCAN for clustering.
+`build_and_evaluate_bertopic.py` builds a BERTopic model using pre-trained sentence embeddings. It supports multiple embedding models optimized for French text and uses UMAP for dimensionality reduction with configurable clustering (KMeans by default, HDBSCAN optional).
 
 ### Command Line Parameters
 
@@ -140,7 +142,8 @@ python build_and_evaluate_LDA.py --load-corpus results/LDA/corpus.pkl
 |-----------|------|---------|-------------|
 | `--embedding` | str | 'camembert' | Embedding model to use |
 | `--compute-embeddings` | flag | False | Compute and save embeddings (only needed with `--no-keybert`) |
-| `--clusters` | int | 20 | Number of clusters (topics) |
+| `--clustering` | str | 'kmeans' | Clustering algorithm: 'kmeans', 'hdbscan', or 'agglomerative' |
+| `--clusters` | int | 20 | Number of clusters (for kmeans and agglomerative) |
 | `--sample` | int | None | Sample size (auto-computes embeddings) |
 | `--no-openai` | flag | False | Disable OpenAI topic labeling |
 | `--num-words` | int | 30 | Number of top words per topic |
@@ -148,6 +151,28 @@ python build_and_evaluate_LDA.py --load-corpus results/LDA/corpus.pkl
 | `--top-artists-heatmap` | int | 50 | Top N artists in heatmap |
 | `--no-keybert` | flag | False | Disable KeyBERTInspired representation (enabled by default) |
 | `--no-interactive-html` | flag | False | Disable interactive HTML visualization (enabled by default) |
+
+#### Clustering Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `--clustering` | str | 'kmeans' | Algorithm: 'kmeans', 'hdbscan', or 'agglomerative' |
+| `--clusters` | int | 20 | Number of clusters (KMeans and Agglomerative) |
+
+**HDBSCAN Parameters** (only used if `--clustering=hdbscan`):
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `--hdbscan-min-cluster-size` | int | 15 | Min cluster size (larger = fewer clusters) |
+| `--hdbscan-min-samples` | int | 10 | Min samples for core points |
+| `--hdbscan-selection` | str | 'eom' | Cluster selection: 'eom' (coarse) or 'leaf' (fine) |
+
+**Agglomerative Parameters** (only used if `--clustering=agglomerative`):
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `--agglomerative-linkage` | str | 'ward' | Linkage: 'ward', 'complete', 'average', 'single' |
+| `--agglomerative-metric` | str | 'euclidean' | Distance metric (euclidean required for ward) |
 
 #### UMAP Parameters
 
@@ -445,3 +470,227 @@ See the script for customization options.
 ### Getting Help
 
 Check the source code comments for detailed explanations of each metric and function.
+
+---
+
+## Model Comparison Script
+
+### Description
+
+`main_comparate_run.py` compares the three topic modeling approaches (LDA, BERTopic, IRAMUTEQ) and generates a comprehensive comparison report with statistical analyses.
+
+### Command Line Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `--lda-folder` | str | (auto-detect) | Path to LDA results folder |
+| `--bertopic-folder` | str | (auto-detect) | Path to BERTopic results folder |
+| `--iramuteq-folder` | str | (auto-detect) | Path to IRAMUTEQ results folder |
+| `--iramuteq-original` | str | (auto-detect) | Path to original IRAMUTEQ folder |
+| `--output-dir` | str | (auto-generate) | Output directory for comparison results |
+| `--corpus` | str | (default path) | Path to corpus CSV file |
+| `--text-column` | str | 'lyrics_cleaned' | Column name containing document text |
+| `--lang` | str | 'fr' | Report language: 'fr' (French) or 'en' (English) |
+| `--pdf-engine` | str | 'latex' | PDF generation engine (see below) |
+| `--spacy-model` | str | 'fr_core_news_lg' | Tokenizer for distance metrics (see below) |
+
+### Tokenizer for Distance Metrics
+
+The script tokenizes all corpus documents **once** and reuses the tokens for each model's Labbé and Jensen-Shannon distance computations. Two tokenizer backends are available:
+
+| Value | Backend | Lemmatization | Requirements | Best For |
+|-------|---------|---------------|--------------|----------|
+| `fr_core_news_lg` (default) | SpaCy | No (disabled) | `python -m spacy download fr_core_news_lg` | Accurate POS-aware tokenization |
+| `fr_core_news_md` | SpaCy | No (disabled) | `python -m spacy download fr_core_news_md` | Balanced speed/accuracy |
+| `fr_core_news_sm` | SpaCy | No (disabled) | `python -m spacy download fr_core_news_sm` | Fast, lower accuracy |
+| `none` | NLTK | No | `nltk` (punkt_tab, stopwords) | No spaCy dependency, simpler tokenization |
+
+**SpaCy tokenizer features:**
+- No lemmatization (surface forms preserved, as in the LDA pipeline)
+- POS-aware filtering (punctuation, numbers, spaces filtered out)
+- Parallelized batch processing via `nlp.pipe()`
+- Disabled unnecessary components (`parser`, `ner`) for speed
+- Stopword removal with extended French + rap filler words
+
+**NLTK tokenizer features:**
+- `word_tokenize` with French language support
+- Extended French stopword list (including rap filler words)
+- No lemmatization (surface forms only)
+- No spaCy dependency required
+
+```bash
+# Install SpaCy model (recommended)
+python -m spacy download fr_core_news_lg
+
+# Or use NLTK fallback (no spaCy needed)
+python main_comparate_run.py --spacy-model none
+```
+
+### PDF Generation Engines
+
+The script supports two PDF generation engines:
+
+| Engine | Description | Requirements | Best For |
+|--------|-------------|--------------|----------|
+| `latex` (default) | Pure LaTeX with proper math equations | xelatex or pdflatex | Academic reports, proper equation rendering |
+| `markdown` | Pypandoc-based conversion | pypandoc, pandoc | Quick reports, when LaTeX not available |
+
+**LaTeX Engine Features:**
+- Properly rendered mathematical equations using `\begin{equation}...\end{equation}`
+- Professional document structure with TOC, headers, page numbers
+- Automatic fallback to markdown if LaTeX compilation fails
+- Generates both `.tex` source and `.pdf` output
+
+**Installation for LaTeX:**
+```bash
+# Ubuntu/Debian
+sudo apt install texlive-xetex texlive-latex-extra texlive-fonts-recommended
+
+# macOS (MacTeX)
+brew install --cask mactex
+
+# Verify installation
+xelatex --version
+```
+
+### Examples
+
+```bash
+# Standard comparison with default LaTeX PDF
+python main_comparate_run.py
+
+# Specify folders explicitly
+python main_comparate_run.py \
+    --lda-folder results/LDA/run_20260126_124051_bigram_only \
+    --bertopic-folder results/BERTopic/run_20260126_130645_camembert \
+    --iramuteq-folder results/IRAMUTEQ/evaluation_20260126_124001
+
+# Generate English report
+python main_comparate_run.py --lang en
+
+# Use markdown engine (when LaTeX not available)
+python main_comparate_run.py --pdf-engine markdown
+
+# Use NLTK tokenizer (no spaCy dependency)
+python main_comparate_run.py --spacy-model none
+
+# Use small spaCy model (faster)
+python main_comparate_run.py --spacy-model fr_core_news_sm
+
+# Full example with all options
+python main_comparate_run.py \
+    --lang fr \
+    --pdf-engine latex \
+    --spacy-model fr_core_news_lg \
+    --output-dir results/comparisons/my_comparison
+```
+
+### Comparison Outputs
+
+The comparison script generates results in `results/comparisons/comparison_YYYYMMDD_HHMMSS/`:
+
+| File | Description |
+|------|-------------|
+| `comparison_report.md` | Full markdown report |
+| `comparison_report.pdf` | PDF report (with equations) |
+| `comparison_report.tex` | LaTeX source (when using latex engine) |
+| `comparison_metrics.json` | All metrics in JSON format |
+| `figures/` | All visualization figures |
+
+### Comparison Metrics
+
+The script computes several comparison metrics:
+
+**Q1: Model Agreement**
+- Adjusted Rand Index (ARI)
+- Normalized Mutual Information (NMI)
+- Contingency tables
+
+**Q2: Artist Separation**
+- Cramér's V for artist-topic association
+- Standardized residuals analysis
+
+**Q3: Temporal Dynamics**
+- Topic evolution over time
+- Jensen-Shannon divergence between periods
+
+**Q4: Vocabulary Overlap**
+- Jaccard similarity of topic vocabularies
+- Shared vs unique terms
+
+**Q5: Intra-topic Coherence**
+- Jensen-Shannon distance within topics
+- Labbé distance for lexical homogeneity
+
+### Report Sections
+
+The generated report includes:
+
+1. **Corpus Description** - Dataset statistics and temporal coverage
+2. **Individual Model Descriptions** - Parameters and metrics for each model
+3. **Comparative Analysis** - Cross-model comparisons with statistical tests
+4. **Summary and Recommendations** - Key findings and best practices
+5. **Mathematical Appendix** - Formula definitions and methodological notes
+
+---
+
+## Report Utilities
+
+### Translation System
+
+Reports support French (default) and English. Translations are stored in `utils/comparaison_utils/report/translations.json`.
+
+To add or modify translations:
+```json
+{
+  "fr": {
+    "title": "Rapport de Comparaison des Modèles de Topics",
+    ...
+  },
+  "en": {
+    "title": "Topic Model Comparison Report",
+    ...
+  }
+}
+```
+
+### Programmatic Report Generation
+
+You can generate reports programmatically:
+
+```python
+from utils.comparaison_utils import (
+    generate_comparison_report,
+    generate_pdf_report,
+    generate_latex_report,
+)
+
+# Generate markdown report
+markdown_content = generate_comparison_report(
+    results=all_results,
+    output_dir="./output",
+    figures_dir="./output/figures",
+    lang='fr'
+)
+
+# Generate PDF with LaTeX engine
+success = generate_pdf_report(
+    markdown_content=markdown_content,
+    output_path="./output/report.pdf",
+    lang='fr',
+    pdf_engine='latex',  # or 'markdown'
+    results=all_results,
+    output_dir="./output",
+    figures_dir="./output/figures"
+)
+
+# Or generate LaTeX directly
+latex_content = generate_latex_report(
+    results=all_results,
+    output_dir="./output",
+    figures_dir="./output/figures",
+    lang='fr'
+)
+```
+
+---

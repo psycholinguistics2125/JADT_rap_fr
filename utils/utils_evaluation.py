@@ -4,31 +4,33 @@ Shared Evaluation Utilities for Topic Modeling
 ===============================================
 Common evaluation functions for LDA, BERTopic, and IRAMUTEQ clustering.
 
-Why Jensen-Shannon Divergence?
-------------------------------
-We use Jensen-Shannon (JS) divergence throughout this evaluation framework for
+Why Jensen-Shannon Distance?
+----------------------------
+We use Jensen-Shannon (JS) distance throughout this evaluation framework for
 comparing probability distributions (topic profiles between artists, temporal
 evolution between time periods, etc.) for the following reasons:
+
+NOTE: scipy.spatial.distance.jensenshannon() returns the JS **distance** (square
+root of JS divergence), not the divergence itself. This is the value we use.
 
 1. **Symmetry**: Unlike KL divergence, JS(P||Q) = JS(Q||P). This is important
    when comparing artists or time periods where there's no "reference" distribution.
 
-2. **Bounded**: JS divergence is bounded between 0 and 1 (when using log base 2)
-   or 0 and ln(2) (natural log). This makes interpretation easier:
+2. **Bounded**: JS distance is always bounded between 0 and 1:
    - 0 = identical distributions
-   - Higher values = more different distributions
+   - 1 = maximally different distributions
 
-3. **Always defined**: JS divergence is defined even when one distribution has
+3. **Always defined**: JS distance is defined even when one distribution has
    zeros where the other doesn't (unlike KL divergence which goes to infinity).
    This is crucial for topic modeling where an artist may have zero documents
    in some topics.
 
-4. **Metric property**: The square root of JS divergence is a proper metric,
-   satisfying the triangle inequality. This allows meaningful comparisons.
+4. **Metric property**: JS distance is a proper metric, satisfying the triangle
+   inequality. This allows meaningful comparisons.
 
-5. **Information-theoretic interpretation**: JS divergence measures how much
-   information is lost when using the average distribution M = (P+Q)/2 instead
-   of P or Q individually.
+5. **Information-theoretic interpretation**: The squared JS distance (JS divergence)
+   measures how much information is lost when using the average distribution
+   M = (P+Q)/2 instead of P or Q individually.
 
 Alternative measures considered:
 - **Chi-square test**: Sensitive to sample size, not suitable for comparing
@@ -123,7 +125,8 @@ def compute_artist_separation(topics: np.ndarray, df: pd.DataFrame,
         topic_probs = topic_counts / topic_counts.sum()
 
         # Entropy: low = specialist, high = generalist
-        entropy = stats.entropy(topic_probs + 1e-10)
+        # Filter zeros to avoid numerical issues (0 * log(0) = 0 mathematically)
+        entropy = stats.entropy(topic_probs[topic_probs > 0])
         normalized_entropy = entropy / max_entropy  # 0-1 scale
 
         # Dominant topic info (convert index back to original topic ID)
@@ -248,10 +251,11 @@ def compute_artist_separation(topics: np.ndarray, df: pd.DataFrame,
                 js_distances.append(js_dist)
 
     if js_distances:
+        # Note: variable named 'divergence' for backward compatibility, but value is JS distance
         metrics['mean_js_divergence'] = float(np.mean(js_distances))
         metrics['std_js_divergence'] = float(np.std(js_distances))
-        print(f"\n  [INTER-ARTIST DIVERGENCE]")
-        print(f"    Mean JS divergence: {metrics['mean_js_divergence']:.4f} (higher = more different)")
+        print(f"\n  [INTER-ARTIST JS DISTANCE]")
+        print(f"    Mean JS distance: {metrics['mean_js_divergence']:.4f} (higher = more different)")
 
     # 7. Topic purity: for each topic, how concentrated is it among few artists?
     topic_concentration = []
@@ -448,9 +452,9 @@ def compute_temporal_separation(topics: np.ndarray, df: pd.DataFrame,
             decade_changes[f"{d1}s->{d2}s"] = float(js_dist)
 
         metrics['decade_changes'] = decade_changes
-        print(f"  Decade changes (JS divergence): {decade_changes}")
+        print(f"  Decade changes (JS distance): {decade_changes}")
 
-    # 6. 2-year window JS divergence
+    # 6. 2-year window JS distance
     if len(unique_years) >= 4:
         # Create 2-year windows
         min_year = min(unique_years)
@@ -475,7 +479,7 @@ def compute_temporal_separation(topics: np.ndarray, df: pd.DataFrame,
                     if topic_counts.sum() > 0:
                         window_profiles[window_start] = topic_counts / topic_counts.sum()
 
-        # Compute JS divergence between consecutive windows
+        # Compute JS distance between consecutive windows
         sorted_windows = sorted(window_profiles.keys())
         window_changes = {}
         for i in range(len(sorted_windows) - 1):
@@ -488,7 +492,7 @@ def compute_temporal_separation(topics: np.ndarray, df: pd.DataFrame,
         metrics['mean_biannual_js'] = float(np.mean(list(window_changes.values()))) if window_changes else 0.0
 
         print(f"  2-year window changes: {len(window_changes)} transitions")
-        print(f"  Mean 2-year JS divergence: {metrics['mean_biannual_js']:.4f}")
+        print(f"  Mean 2-year JS distance: {metrics['mean_biannual_js']:.4f}")
 
     metrics['topic_evolution'] = topic_evolution_df.to_dict()
     metrics['dominant_by_year'] = {int(k): v.tolist() for k, v in dominant_by_year.items()}
@@ -592,7 +596,7 @@ def save_temporal_metrics(temporal_separation: dict, run_dir: str):
     evolution_df.to_csv(evolution_path)
     print(f"  Topic evolution saved to: {evolution_path}")
 
-    # Save 2-year window JS divergence
+    # Save 2-year window JS distance
     if 'biannual_changes' in temporal_separation and temporal_separation['biannual_changes']:
         biannual_path = os.path.join(run_dir, "biannual_js_divergence.csv")
         biannual_data = [
@@ -600,7 +604,7 @@ def save_temporal_metrics(temporal_separation: dict, run_dir: str):
             for k, v in temporal_separation['biannual_changes'].items()
         ]
         pd.DataFrame(biannual_data).to_csv(biannual_path, index=False)
-        print(f"  2-year JS divergence saved to: {biannual_path}")
+        print(f"  2-year JS distance saved to: {biannual_path}")
 
 
 def create_topic_distribution_plot(topics: np.ndarray, run_dir: str, title: str = "Topic Distribution"):
@@ -623,21 +627,6 @@ def create_topic_distribution_plot(topics: np.ndarray, run_dir: str, title: str 
     plt.savefig(os.path.join(run_dir, 'topic_distribution.png'), dpi=150)
     plt.close()
     print("  Saved topic distribution plot")
-
-
-def create_topic_evolution_heatmap(temporal_separation: dict, run_dir: str, title: str = "Topic Prevalence Over Time"):
-    """Create and save topic evolution heatmap."""
-    evolution_df = pd.DataFrame(temporal_separation['topic_evolution'])
-    if not evolution_df.empty:
-        fig, ax = plt.subplots(figsize=(14, 10))
-        sns.heatmap(evolution_df.T, cmap='YlOrRd', ax=ax)
-        ax.set_xlabel('Year')
-        ax.set_ylabel('Topic/Cluster ID')
-        ax.set_title(title)
-        plt.tight_layout()
-        plt.savefig(os.path.join(run_dir, 'topic_evolution_heatmap.png'), dpi=150)
-        plt.close()
-        print("  Saved topic evolution heatmap")
 
 
 def create_artist_topics_heatmap(topics: np.ndarray, df: pd.DataFrame, run_dir: str,
@@ -704,7 +693,7 @@ def print_evaluation_summary(results: dict, method_name: str = "Topic Model"):
             print(f"   Moderate: {asep.get('pct_moderate', 0):.1f}%")
             print(f"   Generalists: {asep.get('pct_generalists', 0):.1f}%")
         if asep.get('mean_js_divergence') is not None:
-            print(f"   Mean JS Divergence: {asep['mean_js_divergence']:.4f}")
+            print(f"   Mean JS Distance: {asep['mean_js_divergence']:.4f}")
         if asep.get('artist_specialization') is not None:
             print(f"   Artist Specialization: {asep['artist_specialization']:.4f}")
 
@@ -718,7 +707,7 @@ def print_evaluation_summary(results: dict, method_name: str = "Topic Model"):
             print(f"   Mean 2-year JS Divergence: {tsep['mean_biannual_js']:.4f}")
 
         if 'decade_changes' in tsep:
-            print("   Decade Changes (JS divergence):")
+            print("   Decade Changes (JS distance):")
             for period, change in tsep['decade_changes'].items():
                 print(f"      {period}: {change:.4f}")
 
@@ -782,7 +771,7 @@ def create_artist_specialization_plot(artist_separation: dict, run_dir: str):
 def create_biannual_js_plot(temporal_separation: dict, run_dir: str,
                             title: str = "2-Year Window JS Divergence Over Time"):
     """
-    Create line plot showing JS divergence between consecutive 2-year windows.
+    Create line plot showing JS distance between consecutive 2-year windows.
 
     This visualizes how topic distributions change over time at a finer
     granularity than decade comparisons.
@@ -828,7 +817,7 @@ def create_biannual_js_plot(temporal_separation: dict, run_dir: str,
     plt.tight_layout()
     plt.savefig(os.path.join(run_dir, 'biannual_js_divergence.png'), dpi=150)
     plt.close()
-    print("  Saved biannual JS divergence plot")
+    print("  Saved biannual JS distance plot")
 
 
 def create_year_topic_heatmap(topics: np.ndarray, df: pd.DataFrame, run_dir: str,
@@ -867,11 +856,10 @@ def create_all_standard_visualizations(results: dict, topics: np.ndarray, df: pd
 
     Creates:
     1. Topic distribution bar plot
-    2. Topic evolution heatmap
-    3. Year-topic heatmap
-    4. Artist topic profiles heatmap
-    5. Artist specialization plot
-    6. Biannual JS divergence plot
+    2. Year-topic heatmap (topic distribution over time)
+    3. Artist topic profiles heatmap
+    4. Artist specialization plot
+    5. Biannual JS distance plot
 
     Args:
         results: Dictionary containing 'temporal_separation' and 'artist_separation'
@@ -889,24 +877,19 @@ def create_all_standard_visualizations(results: dict, topics: np.ndarray, df: pd
     create_topic_distribution_plot(topics, run_dir,
                                     title=f"{method_name} Topic Distribution")
 
-    # 2. Topic evolution heatmap
-    if 'temporal_separation' in results:
-        create_topic_evolution_heatmap(results['temporal_separation'], run_dir,
-                                        title=f"{method_name} Topic Prevalence Over Time")
-
-    # 3. Year-topic heatmap
+    # 2. Year-topic heatmap (shows topic distribution over time)
     create_year_topic_heatmap(topics, df, run_dir,
                                title=f"{method_name} Topic Distribution by Year")
 
-    # 4. Artist topic profiles heatmap
+    # 3. Artist topic profiles heatmap
     create_artist_topics_heatmap(topics, df, run_dir, top_n_artists=top_n_artists,
                                   title=f"Top {top_n_artists} Artists - {method_name} Topic Profiles")
 
-    # 5. Artist specialization plot
+    # 4. Artist specialization plot
     if 'artist_separation' in results:
         create_artist_specialization_plot(results['artist_separation'], run_dir)
 
-    # 6. Biannual JS divergence plot
+    # 5. Biannual JS distance plot
     if 'temporal_separation' in results:
         create_biannual_js_plot(results['temporal_separation'], run_dir,
                                  title=f"{method_name} - 2-Year Window JS Divergence")

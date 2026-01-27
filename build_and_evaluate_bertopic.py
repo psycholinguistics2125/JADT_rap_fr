@@ -23,10 +23,11 @@ import seaborn as sns
 from dotenv import load_dotenv
 
 # ML imports
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.metrics import silhouette_score, silhouette_samples
 from sklearn.decomposition import PCA
 from umap import UMAP
+from hdbscan import HDBSCAN
 
 # BERTopic
 from bertopic import BERTopic
@@ -44,7 +45,6 @@ from utils.utils_evaluation import (
     save_artist_metrics,
     save_temporal_metrics,
     create_topic_distribution_plot,
-    create_topic_evolution_heatmap,
     create_artist_topics_heatmap,
     create_artist_specialization_plot,
     create_biannual_js_plot,
@@ -62,9 +62,10 @@ warnings.filterwarnings('ignore')
 load_dotenv()
 
 # Configuration
-RESULTS_DIR = "/home/robin/Code_repo/psycholinguistic2125/JADT_rap_fr/results/BERTopic"
-EMBEDDINGS_DIR = "/home/robin/Code_repo/psycholinguistic2125/JADT_rap_fr/models/embeddings"
-DATA_PATH = "/home/robin/Code_repo/psycholinguistic2125/JADT_rap_fr/data/20260123_filter_verses_lrfaf_corpus.csv"
+PROJECT_ROOT = Path(__file__).resolve().parent
+RESULTS_DIR = str(PROJECT_ROOT / "results" / "BERTopic")
+EMBEDDINGS_DIR = str(PROJECT_ROOT / "models" / "embeddings")
+DATA_PATH = str(PROJECT_ROOT / "data" / "20260123_filter_verses_lrfaf_corpus.csv")
 
 # Ensure directories exist
 os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -224,8 +225,60 @@ def create_kmeans_model(n_clusters: int = 20, random_state: int = 42) -> KMeans:
     )
 
 
+def create_hdbscan_model(min_cluster_size: int = 15, min_samples: int = 10,
+                          cluster_selection_method: str = 'eom') -> HDBSCAN:
+    """
+    Create HDBSCAN clustering model.
+
+    Args:
+        min_cluster_size: Minimum size of clusters. Larger values = fewer, bigger clusters.
+        min_samples: Number of samples in neighborhood for core points. Larger = more conservative.
+        cluster_selection_method: 'eom' (default) or 'leaf'. 'leaf' gives more fine-grained clusters.
+
+    Returns:
+        HDBSCAN model instance.
+    """
+    return HDBSCAN(
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        metric='euclidean',
+        cluster_selection_method=cluster_selection_method,
+        prediction_data=True,
+    )
+
+
+def create_agglomerative_model(n_clusters: int = 20, linkage: str = 'ward',
+                                metric: str = 'euclidean') -> AgglomerativeClustering:
+    """
+    Create Agglomerative (Hierarchical) Clustering model.
+
+    Args:
+        n_clusters: Number of clusters to find.
+        linkage: Linkage criterion - 'ward', 'complete', 'average', 'single'.
+            - 'ward': minimizes variance within clusters (only works with euclidean)
+            - 'complete': uses maximum distance between clusters
+            - 'average': uses average distance between clusters
+            - 'single': uses minimum distance between clusters
+        metric: Distance metric. 'euclidean' required for ward linkage.
+            Other options: 'cosine', 'manhattan', 'l1', 'l2'.
+
+    Returns:
+        AgglomerativeClustering model instance.
+    """
+    # Ward linkage requires euclidean metric
+    if linkage == 'ward' and metric != 'euclidean':
+        print(f"  Warning: Ward linkage requires euclidean metric, ignoring metric='{metric}'")
+        metric = 'euclidean'
+
+    return AgglomerativeClustering(
+        n_clusters=n_clusters,
+        metric=metric,
+        linkage=linkage,
+    )
+
+
 def create_bertopic_model(docs: list, embeddings: np.ndarray,
-                          umap_model: UMAP, cluster_model: KMeans,
+                          umap_model: UMAP, cluster_model,  # KMeans or HDBSCAN
                           use_openai: bool = True,
                           openai_client=None,
                           embedding_model: SentenceTransformer = None,
@@ -509,11 +562,12 @@ def save_results(results: dict, topic_model: BERTopic, embeddings: np.ndarray,
     save_temporal_metrics(results['temporal_separation'], run_dir)
     save_artist_metrics(results['artist_separation'], run_dir)
 
-    # Save document assignments
+    # Save document assignments (including original_index for alignment with other models)
     doc_assign_path = os.path.join(run_dir, "doc_assignments.csv")
     doc_df = df.copy()
     doc_df['topic'] = topics
-    doc_df[['artist', 'title', 'year', 'topic']].to_csv(doc_assign_path, index=False)
+    doc_df['original_index'] = range(len(doc_df))  # BERTopic keeps all rows, so index = original index
+    doc_df[['original_index', 'artist', 'title', 'year', 'topic']].to_csv(doc_assign_path, index=False)
     print(f"  Document assignments saved to: {doc_assign_path}")
 
     print(f"\n  All results saved to: {run_dir}")
@@ -548,14 +602,10 @@ def create_visualizations(results: dict, embeddings: np.ndarray, umap_embeddings
         plt.close()
         print("  Saved silhouette plot")
 
-    # 2. Topic evolution heatmap (using shared utility)
-    create_topic_evolution_heatmap(results['temporal_separation'], run_dir,
-                                    title="BERTopic Topic Prevalence Over Time")
-
-    # 3. Topic distribution (using shared utility)
+    # 2. Topic distribution (using shared utility)
     create_topic_distribution_plot(topics, run_dir, title="BERTopic Topic Distribution")
 
-    # 4. Year-topic heatmap (using shared utility)
+    # 3. Year-topic heatmap (shows topic distribution over time, using shared utility)
     create_year_topic_heatmap(topics, df, run_dir,
                                title="BERTopic Topic Distribution by Year")
 
@@ -642,8 +692,24 @@ def run_experiment(embedding_key: str = 'camembert',
                    top_artists_per_topic: int = 20,
                    top_n_artists_heatmap: int = 50,
                    include_keybert: bool = False,
-                   interactive_html: bool = False):
-    """Run a complete BERTopic experiment."""
+                   interactive_html: bool = False,
+                   clustering_algorithm: str = 'kmeans',
+                   hdbscan_min_cluster_size: int = 15,
+                   hdbscan_min_samples: int = 10,
+                   hdbscan_cluster_selection: str = 'eom',
+                   agglomerative_linkage: str = 'ward',
+                   agglomerative_metric: str = 'euclidean'):
+    """
+    Run a complete BERTopic experiment.
+
+    Args:
+        clustering_algorithm: 'kmeans', 'hdbscan', or 'agglomerative'
+        hdbscan_min_cluster_size: Min cluster size for HDBSCAN (ignored if not hdbscan)
+        hdbscan_min_samples: Min samples for HDBSCAN core points (ignored if not hdbscan)
+        hdbscan_cluster_selection: 'eom' or 'leaf' for HDBSCAN (ignored if not hdbscan)
+        agglomerative_linkage: Linkage for agglomerative: 'ward', 'complete', 'average', 'single'
+        agglomerative_metric: Distance metric for agglomerative (euclidean required for ward)
+    """
 
     print("\n" + "="*60)
     print("BERTOPIC EXPERIMENT FOR FRENCH RAP CORPUS")
@@ -661,7 +727,13 @@ def run_experiment(embedding_key: str = 'camembert',
 
     print(f"\nEmbedding model: {EMBEDDING_MODELS[embedding_key]}")
     print(f"UMAP parameters: {umap_params}")
-    print(f"Number of clusters: {n_clusters}")
+    print(f"Clustering algorithm: {clustering_algorithm}")
+    if clustering_algorithm == 'kmeans':
+        print(f"Number of clusters: {n_clusters}")
+    elif clustering_algorithm == 'hdbscan':
+        print(f"HDBSCAN params: min_cluster_size={hdbscan_min_cluster_size}, min_samples={hdbscan_min_samples}, selection={hdbscan_cluster_selection}")
+    elif clustering_algorithm == 'agglomerative':
+        print(f"Agglomerative params: n_clusters={n_clusters}, linkage={agglomerative_linkage}, metric={agglomerative_metric}")
 
     # Load data
     df = load_data(DATA_PATH, sample_size=sample_size)
@@ -713,8 +785,24 @@ def run_experiment(embedding_key: str = 'camembert',
     umap_embeddings = umap_model.fit_transform(embeddings)
     print(f"UMAP embeddings shape: {umap_embeddings.shape}")
 
-    # Create KMeans model
-    kmeans_model = create_kmeans_model(n_clusters=n_clusters)
+    # Create clustering model (KMeans, HDBSCAN, or Agglomerative)
+    if clustering_algorithm == 'hdbscan':
+        cluster_model = create_hdbscan_model(
+            min_cluster_size=hdbscan_min_cluster_size,
+            min_samples=hdbscan_min_samples,
+            cluster_selection_method=hdbscan_cluster_selection
+        )
+        print(f"Created HDBSCAN model")
+    elif clustering_algorithm == 'agglomerative':
+        cluster_model = create_agglomerative_model(
+            n_clusters=n_clusters,
+            linkage=agglomerative_linkage,
+            metric=agglomerative_metric
+        )
+        print(f"Created Agglomerative model with {n_clusters} clusters, linkage={agglomerative_linkage}")
+    else:
+        cluster_model = create_kmeans_model(n_clusters=n_clusters)
+        print(f"Created KMeans model with {n_clusters} clusters")
 
     # Initialize OpenAI client if needed
     openai_client = None
@@ -728,7 +816,7 @@ def run_experiment(embedding_key: str = 'camembert',
 
     # Create and fit BERTopic model
     topic_model, topics, probs = create_bertopic_model(
-        docs, embeddings, umap_model, kmeans_model,
+        docs, embeddings, umap_model, cluster_model,
         use_openai=use_openai, openai_client=openai_client,
         embedding_model=embedding_model,
         include_keybert=include_keybert
@@ -753,7 +841,17 @@ def run_experiment(embedding_key: str = 'camembert',
         'parameters': {
             'embedding_model': EMBEDDING_MODELS[embedding_key],
             'embedding_key': embedding_key,
-            'n_clusters': n_clusters,
+            'clustering_algorithm': clustering_algorithm,
+            'n_clusters': n_clusters if clustering_algorithm in ['kmeans', 'agglomerative'] else None,
+            'hdbscan_params': {
+                'min_cluster_size': hdbscan_min_cluster_size,
+                'min_samples': hdbscan_min_samples,
+                'cluster_selection_method': hdbscan_cluster_selection,
+            } if clustering_algorithm == 'hdbscan' else None,
+            'agglomerative_params': {
+                'linkage': agglomerative_linkage,
+                'metric': agglomerative_metric,
+            } if clustering_algorithm == 'agglomerative' else None,
             'umap_params': umap_params,
             'num_documents': len(docs),
             'num_words_per_topic': num_words_per_topic,
@@ -806,7 +904,28 @@ if __name__ == "__main__":
                         help='Compute embeddings (otherwise load from disk)')
 
     # Clustering parameters
-    parser.add_argument('--clusters', type=int, default=20, help='Number of clusters')
+    parser.add_argument('--clustering', type=str, default='kmeans',
+                        choices=['kmeans', 'hdbscan', 'agglomerative'],
+                        help='Clustering algorithm: kmeans, hdbscan, or agglomerative')
+    parser.add_argument('--clusters', type=int, default=20,
+                        help='Number of clusters (for kmeans and agglomerative)')
+
+    # HDBSCAN parameters (only used if --clustering=hdbscan)
+    parser.add_argument('--hdbscan-min-cluster-size', type=int, default=15,
+                        help='HDBSCAN: minimum cluster size (larger = fewer clusters)')
+    parser.add_argument('--hdbscan-min-samples', type=int, default=10,
+                        help='HDBSCAN: min samples for core points (larger = more conservative)')
+    parser.add_argument('--hdbscan-selection', type=str, default='eom',
+                        choices=['eom', 'leaf'],
+                        help='HDBSCAN: cluster selection method (eom=coarse, leaf=fine)')
+
+    # Agglomerative parameters (only used if --clustering=agglomerative)
+    parser.add_argument('--agglomerative-linkage', type=str, default='ward',
+                        choices=['ward', 'complete', 'average', 'single'],
+                        help='Agglomerative: linkage criterion (ward=min variance, complete=max dist)')
+    parser.add_argument('--agglomerative-metric', type=str, default='euclidean',
+                        choices=['euclidean', 'cosine', 'manhattan'],
+                        help='Agglomerative: distance metric (euclidean required for ward)')
 
     # UMAP parameters
     parser.add_argument('--umap-neighbors', type=int, default=15, help='UMAP n_neighbors')
@@ -847,4 +966,10 @@ if __name__ == "__main__":
         top_n_artists_heatmap=args.top_artists_heatmap,
         include_keybert=not args.no_keybert,
         interactive_html=not args.no_interactive_html,
+        clustering_algorithm=args.clustering,
+        hdbscan_min_cluster_size=args.hdbscan_min_cluster_size,
+        hdbscan_min_samples=args.hdbscan_min_samples,
+        hdbscan_cluster_selection=args.hdbscan_selection,
+        agglomerative_linkage=args.agglomerative_linkage,
+        agglomerative_metric=args.agglomerative_metric,
     )
