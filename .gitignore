@@ -12,6 +12,7 @@ results/IRAMUTEQ/original_run_from_pierre_corpus_rap2_alceste_1/*
 results/LDA/*.pkl
 results/LDA/*.dict
 *.zip
+website_output/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
