@@ -108,17 +108,21 @@ Intervalle : [0, 1], où 0 = distributions identiques, 1 = maximalement différe
         'name': 'Distance intertextuelle de Labbé',
         'citation': 'Labbé, D., & Labbé, C. (2001)',
         'paper': 'Inter-textual distance and authorship attribution. Corela : cognition, représentation, langage. Journal of Quantitative Linguistics, 8(3), 213-231.',
-        'description': '''The Labbé distance measures lexical similarity between two texts based on
-relative word frequencies. It computes the sum of absolute differences in word frequencies:
-D(A, B) = 0.5 × Σ|f_A(w) - f_B(w)|, where f_A(w) and f_B(w) are relative frequencies of word w.
-This metric is the standard in French stylometry and JADT community for authorship attribution
-and textual analysis. It captures lexical homogeneity independently of semantic content.
+        'description': '''The Labbé distance measures lexical similarity between two texts, implemented
+according to the original IRAMUTEQ algorithm. It explicitly handles length asymmetry between texts:
+1) Identify smaller (N_small) and larger (N_large) texts
+2) Scale larger text counts: n'_i = n_i × U where U = N_small/N_large
+3) Compute sum of absolute differences on scaled counts
+4) Normalize: D = Σ|n_small - n'_large| / (N_small + Σ(n' where n'≥1))
+This metric is the standard in French stylometry and JADT community for authorship attribution.
 Range: [0, 1], where 0 = identical vocabularies, 1 = no overlap.''',
-        'description_fr': '''La distance de Labbé mesure la similarité lexicale entre deux textes à partir
-des fréquences relatives des mots. Elle calcule la somme des différences absolues des fréquences :
-D(A, B) = 0.5 × Σ|f_A(w) - f_B(w)|, où f_A(w) et f_B(w) sont les fréquences relatives du mot w.
-Cette métrique est le standard en stylométrie française et dans la communauté JADT pour l'attribution
-d'auteur et l'analyse textuelle. Elle capture l'homogénéité lexicale indépendamment du contenu sémantique.
+        'description_fr': '''La distance de Labbé mesure la similarité lexicale entre deux textes, implémentée
+selon l'algorithme original d'IRAMUTEQ. Elle gère explicitement l'asymétrie de longueur entre textes :
+1) Identifier le texte plus petit (N_small) et plus grand (N_large)
+2) Normaliser les comptages du texte plus grand : n'_i = n_i × U où U = N_small/N_large
+3) Calculer la somme des différences absolues sur les comptages normalisés
+4) Normaliser : D = Σ|n_small - n'_large| / (N_small + Σ(n' où n'≥1))
+Cette métrique est le standard en stylométrie française et dans la communauté JADT pour l'attribution d'auteur.
 Intervalle : [0, 1], où 0 = vocabulaires identiques, 1 = aucun chevauchement.''',
         'interpretation': {
             'very_similar': 0.2,
@@ -128,7 +132,8 @@ Intervalle : [0, 1], où 0 = vocabulaires identiques, 1 = aucun chevauchement.''
         },
         'additional_refs': [
             'Labbé, D., & Monière, D. (2003). Le vocabulaire gouvernemental : Canada, Québec, France (1945-2000). Honoré Champion.',
-            'Labbé, C., & Labbé, D. (2007). Experiments on authorship attribution by intertextual distance in English. Journal of Quantitative Linguistics, 14(1), 33-80.'
+            'Labbé, C., & Labbé, D. (2007). Experiments on authorship attribution by intertextual distance in English. Journal of Quantitative Linguistics, 14(1), 33-80.',
+            'IRAMUTEQ implementation: gitlab.huma-num.fr/pratinaud/iramuteq (distance-labbe.R)'
         ]
     },
     'coherence_cv': {

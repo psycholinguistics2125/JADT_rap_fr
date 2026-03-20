@@ -78,12 +78,15 @@ def load_run_data(run_dir: str, model_type: str,
     else:
         data['artist_topic_metrics'] = pd.DataFrame()
 
-    # Load biannual_js_divergence.csv
-    js_path = run_dir / 'biannual_js_divergence.csv'
-    if js_path.exists():
-        data['biannual_js_divergence'] = pd.read_csv(js_path)
+    # Load annual/biannual JS divergence (try annual first, fall back to biannual)
+    annual_js_path = run_dir / 'annual_js_divergence.csv'
+    biannual_js_path = run_dir / 'biannual_js_divergence.csv'
+    if annual_js_path.exists():
+        data['annual_js_divergence'] = pd.read_csv(annual_js_path)
+    elif biannual_js_path.exists():
+        data['annual_js_divergence'] = pd.read_csv(biannual_js_path)
     else:
-        data['biannual_js_divergence'] = pd.DataFrame()
+        data['annual_js_divergence'] = pd.DataFrame()
 
     # For IRAMUTEQ, try to load vocabulary from original run
     if model_type == 'iramuteq' and iramuteq_original_dir:

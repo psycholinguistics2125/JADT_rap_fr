@@ -421,78 +421,35 @@ def compute_temporal_separation(topics: np.ndarray, df: pd.DataFrame,
     metrics['topic_temporal_variance'] = [float(v) for v in temporal_variance]
     print(f"  Mean temporal variance: {metrics['mean_temporal_variance']:.6f}")
 
-    # 5. Decade comparison
-    if max(unique_years) - min(unique_years) >= 20:
-        decades = {}
-        for year in unique_years:
-            decade = (year // 10) * 10
-            if decade not in decades:
-                decades[decade] = []
-            decades[decade].append(year)
-
-        decade_profiles = {}
-        for decade, decade_years in decades.items():
-            decade_mask = np.isin(years, decade_years)
-            if decade_mask.sum() > 0:
+    # 5. Annual (1-year window) JS distance between consecutive years
+    if len(unique_years) >= 3:
+        year_profiles = {}
+        for yr in unique_years:
+            year_mask = (years == yr)
+            if year_mask.sum() >= 10:  # Need minimum docs
                 if doc_topics is not None:
-                    # LDA case: use probability matrix
-                    decade_profiles[decade] = doc_topics_valid[decade_mask].mean(axis=0)
+                    year_profiles[yr] = doc_topics_valid[year_mask].mean(axis=0)
                 else:
-                    # BERTopic/IRAMUTEQ case: use topic counts
-                    decade_topics = topics_valid[decade_mask]
-                    decade_topics_idx = np.array([topic_to_idx[t] for t in decade_topics])
-                    topic_counts = np.bincount(decade_topics_idx, minlength=n_topics)
-                    decade_profiles[decade] = topic_counts / topic_counts.sum()
-
-        sorted_decades = sorted(decade_profiles.keys())
-        decade_changes = {}
-        for i in range(len(sorted_decades) - 1):
-            d1, d2 = sorted_decades[i], sorted_decades[i+1]
-            js_dist = jensenshannon(decade_profiles[d1], decade_profiles[d2])
-            decade_changes[f"{d1}s->{d2}s"] = float(js_dist)
-
-        metrics['decade_changes'] = decade_changes
-        print(f"  Decade changes (JS distance): {decade_changes}")
-
-    # 6. 2-year window JS distance
-    if len(unique_years) >= 4:
-        # Create 2-year windows
-        min_year = min(unique_years)
-        max_year = max(unique_years)
-
-        # Align to even years for consistent windows
-        start_year = min_year if min_year % 2 == 0 else min_year + 1
-
-        window_profiles = {}
-        for window_start in range(start_year, max_year - 1, 2):
-            window_years = [window_start, window_start + 1]
-            window_mask = np.isin(years, window_years)
-            if window_mask.sum() >= 10:  # Need minimum docs
-                if doc_topics is not None:
-                    # LDA case: use probability matrix
-                    window_profiles[window_start] = doc_topics_valid[window_mask].mean(axis=0)
-                else:
-                    # BERTopic/IRAMUTEQ case: use topic counts
-                    window_topics = topics_valid[window_mask]
-                    window_topics_idx = np.array([topic_to_idx[t] for t in window_topics])
-                    topic_counts = np.bincount(window_topics_idx, minlength=n_topics)
+                    yr_topics = topics_valid[year_mask]
+                    yr_topics_idx = np.array([topic_to_idx[t] for t in yr_topics])
+                    topic_counts = np.bincount(yr_topics_idx, minlength=n_topics)
                     if topic_counts.sum() > 0:
-                        window_profiles[window_start] = topic_counts / topic_counts.sum()
+                        year_profiles[yr] = topic_counts / topic_counts.sum()
 
-        # Compute JS distance between consecutive windows
-        sorted_windows = sorted(window_profiles.keys())
-        window_changes = {}
-        for i in range(len(sorted_windows) - 1):
-            w1, w2 = sorted_windows[i], sorted_windows[i + 1]
-            js_dist = jensenshannon(window_profiles[w1], window_profiles[w2])
+        # Compute JS distance between consecutive years
+        sorted_years = sorted(year_profiles.keys())
+        annual_changes = {}
+        for i in range(len(sorted_years) - 1):
+            y1, y2 = sorted_years[i], sorted_years[i + 1]
+            js_dist = jensenshannon(year_profiles[y1], year_profiles[y2])
             if not np.isnan(js_dist):
-                window_changes[f"{w1}-{w1+1}->{w2}-{w2+1}"] = float(js_dist)
+                annual_changes[f"{y1}->{y2}"] = float(js_dist)
 
-        metrics['biannual_changes'] = window_changes
-        metrics['mean_biannual_js'] = float(np.mean(list(window_changes.values()))) if window_changes else 0.0
+        metrics['annual_changes'] = annual_changes
+        metrics['mean_annual_js'] = float(np.mean(list(annual_changes.values()))) if annual_changes else 0.0
 
-        print(f"  2-year window changes: {len(window_changes)} transitions")
-        print(f"  Mean 2-year JS distance: {metrics['mean_biannual_js']:.4f}")
+        print(f"  Annual changes: {len(annual_changes)} transitions")
+        print(f"  Mean annual JS distance: {metrics['mean_annual_js']:.4f}")
 
     metrics['topic_evolution'] = topic_evolution_df.to_dict()
     metrics['dominant_by_year'] = {int(k): v.tolist() for k, v in dominant_by_year.items()}
@@ -597,14 +554,14 @@ def save_temporal_metrics(temporal_separation: dict, run_dir: str):
     print(f"  Topic evolution saved to: {evolution_path}")
 
     # Save 2-year window JS distance
-    if 'biannual_changes' in temporal_separation and temporal_separation['biannual_changes']:
-        biannual_path = os.path.join(run_dir, "biannual_js_divergence.csv")
-        biannual_data = [
-            {'window_transition': k, 'js_divergence': v}
-            for k, v in temporal_separation['biannual_changes'].items()
+    if 'annual_changes' in temporal_separation and temporal_separation['annual_changes']:
+        annual_path = os.path.join(run_dir, "annual_js_divergence.csv")
+        annual_data = [
+            {'year_transition': k, 'js_divergence': v}
+            for k, v in temporal_separation['annual_changes'].items()
         ]
-        pd.DataFrame(biannual_data).to_csv(biannual_path, index=False)
-        print(f"  2-year JS distance saved to: {biannual_path}")
+        pd.DataFrame(annual_data).to_csv(annual_path, index=False)
+        print(f"  Annual JS distance saved to: {annual_path}")
 
 
 def create_topic_distribution_plot(topics: np.ndarray, run_dir: str, title: str = "Topic Distribution"):
@@ -703,19 +660,13 @@ def print_evaluation_summary(results: dict, method_name: str = "Topic Model"):
         tsep = results['temporal_separation']
         print(f"   Mean Temporal Variance: {tsep.get('mean_temporal_variance', 0):.6f}")
 
-        if 'mean_biannual_js' in tsep:
-            print(f"   Mean 2-year JS Divergence: {tsep['mean_biannual_js']:.4f}")
+        if 'mean_annual_js' in tsep:
+            print(f"   Mean Annual JS Divergence: {tsep['mean_annual_js']:.4f}")
 
-        if 'decade_changes' in tsep:
-            print("   Decade Changes (JS distance):")
-            for period, change in tsep['decade_changes'].items():
-                print(f"      {period}: {change:.4f}")
-
-        if 'biannual_changes' in tsep and len(tsep['biannual_changes']) > 0:
-            # Show summary stats for 2-year changes
-            biannual_values = list(tsep['biannual_changes'].values())
-            print(f"   2-year Window Changes: {len(biannual_values)} transitions")
-            print(f"      Min: {min(biannual_values):.4f}, Max: {max(biannual_values):.4f}")
+        if 'annual_changes' in tsep and len(tsep['annual_changes']) > 0:
+            annual_values = list(tsep['annual_changes'].values())
+            print(f"   Annual Changes: {len(annual_values)} transitions")
+            print(f"      Min: {min(annual_values):.4f}, Max: {max(annual_values):.4f}")
 
         if 'trend_correlations' in tsep:
             increasing = [tid for tid, t in tsep['trend_correlations'].items() if t['trend'] == 'increasing']
@@ -768,56 +719,48 @@ def create_artist_specialization_plot(artist_separation: dict, run_dir: str):
     print("  Saved artist specialization plot")
 
 
-def create_biannual_js_plot(temporal_separation: dict, run_dir: str,
-                            title: str = "2-Year Window JS Divergence Over Time"):
+def create_annual_js_plot(temporal_separation: dict, run_dir: str,
+                           title: str = "Annual JS Divergence Over Time"):
     """
-    Create line plot showing JS distance between consecutive 2-year windows.
-
-    This visualizes how topic distributions change over time at a finer
-    granularity than decade comparisons.
+    Create line plot showing JS distance between consecutive years.
     """
-    if 'biannual_changes' not in temporal_separation or not temporal_separation['biannual_changes']:
-        print("  Skipping biannual JS plot (no biannual data)")
+    if 'annual_changes' not in temporal_separation or not temporal_separation['annual_changes']:
+        print("  Skipping annual JS plot (no annual data)")
         return
 
-    biannual = temporal_separation['biannual_changes']
+    annual = temporal_separation['annual_changes']
 
-    # Parse the window transitions to get start years
-    transitions = list(biannual.keys())
-    js_values = list(biannual.values())
+    transitions = list(annual.keys())
+    js_values = list(annual.values())
 
-    # Extract start year from transition string (e.g., "1992-1993->1994-1995" -> 1994)
+    # Extract target year from transition string (e.g., "2005->2006" -> 2006)
     years = []
     for t in transitions:
-        # Get the second window's start year
-        second_window = t.split('->')[1]
-        year = int(second_window.split('-')[0])
+        year = int(t.split('->')[1])
         years.append(year)
 
     fig, ax = plt.subplots(figsize=(14, 6))
 
-    ax.plot(years, js_values, marker='o', linewidth=2, markersize=6, color='steelblue')
+    ax.plot(years, js_values, marker='o', linewidth=2, markersize=4, color='steelblue')
     ax.fill_between(years, js_values, alpha=0.3, color='steelblue')
 
-    # Add mean line
     mean_js = np.mean(js_values)
     ax.axhline(y=mean_js, color='red', linestyle='--', linewidth=1.5,
                label=f'Mean JS: {mean_js:.4f}')
 
-    ax.set_xlabel('Year (start of 2-year window)')
-    ax.set_ylabel('JS Divergence from Previous Window')
+    ax.set_xlabel('Year')
+    ax.set_ylabel('JS Divergence from Previous Year')
     ax.set_title(title)
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-    # Rotate x labels if many years
-    if len(years) > 15:
+    if len(years) > 20:
         plt.xticks(rotation=45)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(run_dir, 'biannual_js_divergence.png'), dpi=150)
+    plt.savefig(os.path.join(run_dir, 'annual_js_divergence.png'), dpi=150)
     plt.close()
-    print("  Saved biannual JS distance plot")
+    print("  Saved annual JS distance plot")
 
 
 def create_year_topic_heatmap(topics: np.ndarray, df: pd.DataFrame, run_dir: str,
@@ -889,9 +832,9 @@ def create_all_standard_visualizations(results: dict, topics: np.ndarray, df: pd
     if 'artist_separation' in results:
         create_artist_specialization_plot(results['artist_separation'], run_dir)
 
-    # 5. Biannual JS distance plot
+    # 5. Annual JS distance plot
     if 'temporal_separation' in results:
-        create_biannual_js_plot(results['temporal_separation'], run_dir,
-                                 title=f"{method_name} - 2-Year Window JS Divergence")
+        create_annual_js_plot(results['temporal_separation'], run_dir,
+                               title=f"{method_name} - Annual JS Divergence")
 
     print("  All standard visualizations saved!")

@@ -275,3 +275,192 @@ def create_decade_breakdown_plot(df: pd.DataFrame, output_path: str):
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
+
+
+# =============================================================================
+# Q5: AGGREGATION STABILIZATION CURVE
+# =============================================================================
+
+MODEL_COLORS = {'bertopic': '#1f77b4', 'lda': '#ff7f0e', 'iramuteq': '#2ca02c'}
+MODEL_MARKERS = {'bertopic': 'o', 'lda': 's', 'iramuteq': '^'}
+
+
+def create_aggregation_curve_plot(
+    multi_agg_results: dict,
+    output_path: str,
+    model_names: list = None,
+):
+    """
+    Plot aggregation size vs mean Labbé distance (intra and inter).
+
+    Creates a 2-panel figure:
+    - Left: intra-topic Labbé distance (homogeneity) — lower is better
+    - Right: inter-topic Labbé distance (separation) — higher is better
+
+    One line per model, all on the same axes for direct comparison.
+
+    Parameters
+    ----------
+    multi_agg_results : dict
+        {model_name: {agg_size: {mode: {'labbe': {'mean': ..., 'std': ...}}}}}
+        Output from evaluate_multi_aggregation() for each model.
+    output_path : str
+        Path to save PNG.
+    model_names : list, optional
+        Model names in display order. Default: sorted keys.
+    """
+    if model_names is None:
+        model_names = sorted(multi_agg_results.keys())
+
+    fig, (ax_intra, ax_inter) = plt.subplots(1, 2, figsize=(14, 6))
+
+    for model in model_names:
+        model_data = multi_agg_results.get(model, {})
+        if not model_data:
+            continue
+
+        agg_sizes = sorted(model_data.keys())
+        color = MODEL_COLORS.get(model, '#333333')
+        marker = MODEL_MARKERS.get(model, 'o')
+
+        # Intra-aggregated Labbé
+        intra_means = []
+        intra_stds = []
+        for agg in agg_sizes:
+            intra = model_data[agg].get('intra_aggregated', {}).get('labbe', {})
+            intra_means.append(intra.get('mean', 0))
+            intra_stds.append(intra.get('std', 0))
+
+        intra_means = np.array(intra_means)
+        intra_stds = np.array(intra_stds)
+
+        ax_intra.plot(agg_sizes, intra_means, color=color, marker=marker,
+                      label=model.upper(), linewidth=2, markersize=6)
+        ax_intra.fill_between(agg_sizes,
+                              intra_means - intra_stds,
+                              intra_means + intra_stds,
+                              color=color, alpha=0.15)
+
+        # Inter-aggregated Labbé
+        inter_means = []
+        inter_stds = []
+        for agg in agg_sizes:
+            inter = model_data[agg].get('inter_aggregated', {}).get('labbe', {})
+            inter_means.append(inter.get('mean', 0))
+            inter_stds.append(inter.get('std', 0))
+
+        inter_means = np.array(inter_means)
+        inter_stds = np.array(inter_stds)
+
+        ax_inter.plot(agg_sizes, inter_means, color=color, marker=marker,
+                      label=model.upper(), linewidth=2, markersize=6)
+        ax_inter.fill_between(agg_sizes,
+                              inter_means - inter_stds,
+                              inter_means + inter_stds,
+                              color=color, alpha=0.15)
+
+    ax_intra.set_xlabel('Aggregation size (documents)')
+    ax_intra.set_ylabel('Mean Labbé distance')
+    ax_intra.set_title('Intra-topic (homogeneity)')
+    ax_intra.legend()
+    ax_intra.grid(True, alpha=0.3)
+
+    ax_inter.set_xlabel('Aggregation size (documents)')
+    ax_inter.set_ylabel('Mean Labbé distance')
+    ax_inter.set_title('Inter-topic (separation)')
+    ax_inter.legend()
+    ax_inter.grid(True, alpha=0.3)
+
+    fig.suptitle('Labbé Distance Stabilization by Aggregation Size',
+                 fontsize=13, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+
+
+# =============================================================================
+# Q5: INTER-TOPIC SEPARATION RANKING
+# =============================================================================
+
+def create_inter_topic_ranking_plot(
+    inter_results: dict,
+    model_name: str,
+    output_path: str,
+    topic_labels: dict = None,
+):
+    """
+    Horizontal bar chart of per-topic inter-distance (one-vs-rest), sorted.
+
+    Creates a 2-panel figure: left=Labbé, right=JS.
+    Topics are sorted by mean Labbé inter-distance (same order for both).
+
+    Parameters
+    ----------
+    inter_results : dict
+        The model's inter_all_paired results. Expected structure:
+        {'labbe': {'per_topic': {topic_id: {'mean_distance': float}}},
+         'js': {'per_topic': {topic_id: {'mean_distance': float}}}}
+    model_name : str
+        Model display name (e.g., 'BERTOPIC').
+    output_path : str
+        Path to save PNG.
+    topic_labels : dict, optional
+        Mapping from topic_id to human-readable label.
+    """
+    labbe_per_topic = inter_results.get('labbe', {}).get('per_topic', {})
+    js_per_topic = inter_results.get('js', {}).get('per_topic', {})
+
+    if not labbe_per_topic:
+        return
+
+    # Sort topics by Labbé inter-distance ascending
+    sorted_topics = sorted(
+        labbe_per_topic.items(),
+        key=lambda x: x[1].get('mean_distance', 0)
+    )
+
+    topic_ids = [t[0] for t in sorted_topics]
+    labbe_dists = [t[1].get('mean_distance', 0) for t in sorted_topics]
+
+    # Get JS distances in the same topic order
+    js_dists = [
+        js_per_topic.get(tid, {}).get('mean_distance', 0)
+        for tid in topic_ids
+    ]
+
+    # Topic labels
+    labels = []
+    for tid in topic_ids:
+        if topic_labels and tid in topic_labels:
+            labels.append(f"T{tid}: {topic_labels[tid]}")
+        else:
+            labels.append(f"Topic {tid}")
+
+    n_topics = len(topic_ids)
+    fig_height = max(6, n_topics * 0.4)
+    fig, (ax_labbe, ax_js) = plt.subplots(1, 2, figsize=(14, fig_height))
+
+    y_pos = np.arange(n_topics)
+
+    # Labbé panel
+    ax_labbe.barh(y_pos, labbe_dists, color='steelblue', height=0.7)
+    ax_labbe.set_yticks(y_pos)
+    ax_labbe.set_yticklabels(labels)
+    ax_labbe.set_xlabel('Mean Labbé inter-distance')
+    ax_labbe.set_title(f'{model_name} — Labbé')
+    ax_labbe.grid(True, axis='x', alpha=0.3)
+
+    # JS panel
+    ax_js.barh(y_pos, js_dists, color='coral', height=0.7)
+    ax_js.set_yticks(y_pos)
+    ax_js.set_yticklabels([])  # Labels already on left panel
+    ax_js.set_xlabel('Mean JS inter-distance')
+    ax_js.set_title(f'{model_name} — Jensen-Shannon')
+    ax_js.grid(True, axis='x', alpha=0.3)
+
+    fig.suptitle(f'{model_name} — Inter-Topic Separation Ranking (one-vs-rest)',
+                 fontsize=13, fontweight='bold', y=1.02)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()

@@ -13,9 +13,10 @@ Modules:
 - artist_separation: Artist separation analysis (Cramer's V, residuals)
 - temporal: Temporal evolution analysis
 - vocabulary: Vocabulary overlap and distinctiveness
+- tokenizers: Tokenizer classes (SpaCy, NLTK, SimpleSpace)
 - topic_distances: Intra-topic distance metrics (Labbé, Jensen-Shannon)
 - visualization: Plotting and visualization functions
-- report: Markdown report generation
+- report: Report generation (Markdown, LaTeX, PDF)
 
 Usage:
 ------
@@ -24,10 +25,14 @@ Usage:
         align_documents,
         compute_all_pairwise_agreements,
         generate_comparison_report,
+        # Tokenizers
+        SpaCyTokenizer,
+        NLTKTokenizer,
+        SimpleSpaceTokenizer,
         # Topic distances
         LabbeDistance,
         JensenShannonDistance,
-        evaluate_topic_coherence,
+        evaluate_topic_distances,
     )
 """
 
@@ -65,10 +70,20 @@ from .temporal import (
 
 # Q4: Vocabulary Analysis
 from .vocabulary import (
+    build_topic_labels,
     extract_topic_words,
     compute_vocabulary_overlap,
+    compute_full_vocab_jaccard,
+    compute_cross_model_full_vocab_jaccard,
     compute_vocabulary_distinctiveness,
     compare_topic_vocabularies,
+)
+
+# Tokenizers (SpaCy, NLTK, or simple space)
+from .tokenizers import (
+    SpaCyTokenizer,
+    NLTKTokenizer,
+    SimpleSpaceTokenizer,
 )
 
 # Q5: Topic Distance Metrics
@@ -76,13 +91,12 @@ from .topic_distances import (
     BaseDistance,
     LabbeDistance,
     JensenShannonDistance,
-    WMDDistance,
-    evaluate_topic_coherence,
-    # Batch tokenization (SpaCy or NLTK)
-    SpaCyTokenizer,
-    NLTKTokenizer,
-    batch_tokenize_documents,
-    evaluate_topic_coherence_from_tokens,
+    evaluate_topic_distances,
+    aggregate_documents,
+    compute_aggregation_range,
+    evaluate_multi_aggregation,
+    compute_topic_centroid_distances,
+    compute_word_topic_chi2,
 )
 
 # Visualization
@@ -94,6 +108,8 @@ from .visualization import (
     create_vocabulary_comparison_plot,
     create_corpus_year_distribution,
     create_decade_breakdown_plot,
+    create_aggregation_curve_plot,
+    create_inter_topic_ranking_plot,
 )
 
 # Report Generation
@@ -103,6 +119,10 @@ from .report import (
     generate_run_description,
     generate_comparison_report,
     generate_intra_topic_distance_section,
+    generate_topic_distance_4configs_section,
+    generate_aggregation_curve_section,
+    generate_inter_topic_ranking_section,
+    generate_word_topic_chi2_section,
     generate_pdf_report,
     generate_latex_report,
 )
@@ -128,20 +148,27 @@ __all__ = [
     'compute_temporal_comparison',
     'compute_decade_js_divergence',
     # Vocabulary
+    'build_topic_labels',
     'extract_topic_words',
     'compute_vocabulary_overlap',
+    'compute_full_vocab_jaccard',
+    'compute_cross_model_full_vocab_jaccard',
     'compute_vocabulary_distinctiveness',
     'compare_topic_vocabularies',
+    # Tokenizers
+    'SpaCyTokenizer',
+    'NLTKTokenizer',
+    'SimpleSpaceTokenizer',
     # Topic distances
     'BaseDistance',
     'LabbeDistance',
     'JensenShannonDistance',
-    'WMDDistance',
-    'evaluate_topic_coherence',
-    'SpaCyTokenizer',
-    'NLTKTokenizer',
-    'batch_tokenize_documents',
-    'evaluate_topic_coherence_from_tokens',
+    'evaluate_topic_distances',
+    'aggregate_documents',
+    'compute_aggregation_range',
+    'evaluate_multi_aggregation',
+    'compute_topic_centroid_distances',
+    'compute_word_topic_chi2',
     # Visualization
     'create_sankey_diagram',
     'create_agreement_heatmap',
@@ -150,12 +177,18 @@ __all__ = [
     'create_vocabulary_comparison_plot',
     'create_corpus_year_distribution',
     'create_decade_breakdown_plot',
+    'create_aggregation_curve_plot',
+    'create_inter_topic_ranking_plot',
     # Report
     'copy_run_figures',
     'generate_corpus_description',
     'generate_run_description',
     'generate_comparison_report',
     'generate_intra_topic_distance_section',
+    'generate_topic_distance_4configs_section',
+    'generate_aggregation_curve_section',
+    'generate_inter_topic_ranking_section',
+    'generate_word_topic_chi2_section',
     'generate_pdf_report',
     'generate_latex_report',
 ]

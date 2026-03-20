@@ -65,7 +65,7 @@ def copy_run_figures(run_dir: str, figures_dir: str, model_prefix: str) -> dict:
         ('year_topic_heatmap.png', 'year_topic_heatmap'),
         ('artist_topics_heatmap.png', 'artist_topics_heatmap'),
         ('artist_specialization.png', 'artist_specialization'),
-        ('biannual_js_divergence.png', 'biannual_js_divergence'),
+        ('annual_js_divergence.png', 'annual_js_divergence'),
         ('silhouette_plot.png', 'silhouette_plot'),
         ('coherence_plot.png', 'coherence_plot'),
         ('umap_topics.png', 'umap_topics'),
@@ -73,8 +73,15 @@ def copy_run_figures(run_dir: str, figures_dir: str, model_prefix: str) -> dict:
         ('class_distribution.png', 'class_distribution'),
     ]
 
+    # Fallback mappings: if primary file not found, try alternative
+    fallbacks = {
+        'annual_js_divergence.png': 'biannual_js_divergence.png',
+    }
+
     for filename, fig_type in figure_files:
         src = run_dir / filename
+        if not src.exists() and filename in fallbacks:
+            src = run_dir / fallbacks[filename]
         if src.exists():
             dest = figures_dir / f'{model_prefix}_{filename}'
             shutil.copy2(src, dest)
@@ -96,32 +103,35 @@ def generate_distance_appendix(lang: str = 'fr') -> str:
 
 #### Labbé vs Jensen-Shannon : deux regards sur les fréquences
 
-**Point commun**
+**Différences fondamentales**
 
-Les deux métriques partent de la même représentation : chaque texte est une distribution
-de probabilité sur le vocabulaire.
-
-$$P_A = (f_1(A), f_2(A), \\ldots, f_V(A)) \\quad \\text{{où}} \\quad \\sum_{{i=1}}^{{V}} f_i(A) = 1$$
+Les deux métriques mesurent la similarité lexicale entre textes mais avec des approches différentes.
 
 ---
 
-#### Distance de Labbé
+#### Distance de Labbé (algorithme IRAMUTEQ)
 
-Mesure la différence absolue des fréquences :
+La distance de Labbé, implémentée selon l'algorithme original d'IRAMUTEQ, gère explicitement
+l'asymétrie de longueur entre textes. L'algorithme procède comme suit :
 
-$$D_{{\\text{{Labbé}}}}(A, B) = \\frac{{1}}{{2}} \\sum_{{i=1}}^{{V}} |f_i(A) - f_i(B)|$$
+1. **Identifier** le texte le plus petit ($N_{{small}}$) et le plus grand ($N_{{large}}$)
+2. **Normaliser** les comptages du texte plus grand : $n'_i = n_i \\times U$ où $U = N_{{small}} / N_{{large}}$
+3. **Calculer** la somme des différences absolues sur les comptages normalisés
+4. **Normaliser** par le dénominateur ajusté
 
-C'est une **distance L1 (Manhattan) normalisée**.
+$$D_{{\\text{{Labbé}}}}(A, B) = \\frac{{\\sum_{{i=1}}^{{V}} |n_{{small}}(i) - n'_{{large}}(i)|}}{{N_{{small}} + \\sum_{{n'_i \\geq 1}} n'_i}}$$
+
+Cette approche est particulièrement adaptée à la comparaison de textes de longueurs différentes.
 
 ---
 
 #### Divergence de Jensen-Shannon
 
-Mesure la divergence informationnelle entre les distributions.
+Mesure la divergence informationnelle entre les distributions de probabilité.
 
 $$D_{{\\text{{JS}}}}(A, B) = \\frac{{1}}{{2}} D_{{\\text{{KL}}}}(P_A \\| M) + \\frac{{1}}{{2}} D_{{\\text{{KL}}}}(P_B \\| M)$$
 
-où $M = (P_A + P_B) / 2$ est la distribution moyenne.
+où $M = (P_A + P_B) / 2$ est la distribution moyenne et $P$ représente les fréquences relatives.
 
 ---
 
@@ -129,52 +139,59 @@ où $M = (P_A + P_B) / 2$ est la distribution moyenne.
 
 | Aspect | Labbé | Jensen-Shannon |
 |--------|-------|----------------|
+| **Entrée** | Comptages bruts normalisés | Fréquences relatives |
+| **Asymétrie** | Gère explicitement | Symétrique |
 | **Sensibilité** | Linéaire | Logarithmique |
 | **Mots rares** | Faible impact | **Fort impact** |
-| **Fondement** | Géométrique (L1) | Théorie de l'information |
+| **Fondement** | Algorithme IRAMUTEQ | Théorie de l'information |
 
 ---
 
 #### Application au rap français
 
 **JS est plus sensible aux mots d'argot spécifiques** à certains artistes/thèmes.
-**Labbé capture mieux l'homogénéité globale** du vocabulaire courant.
+**Labbé capture mieux l'homogénéité globale** du vocabulaire courant et gère mieux
+les différences de longueur entre couplets.
 
 **Recommandation :** Utiliser les deux métriques en complément :
-- **Labbé** pour l'homogénéité lexicale générale
+- **Labbé** pour l'homogénéité lexicale générale (robuste aux différences de longueur)
 - **JS** pour détecter les vocabulaires distinctifs
 
 """
     else:
         md = f"""### {t('appendix_distance_title')}
 
-#### Labbé vs Jensen-Shannon: Two Perspectives on Frequencies
+#### Labbé vs Jensen-Shannon: Two Perspectives on Lexical Similarity
 
-**Common Ground**
+**Fundamental Differences**
 
-Both metrics start from the same representation: each text is a probability distribution over vocabulary.
-
-$$P_A = (f_1(A), f_2(A), \\ldots, f_V(A)) \\quad \\text{{where}} \\quad \\sum_{{i=1}}^{{V}} f_i(A) = 1$$
+Both metrics measure lexical similarity between texts but with different approaches.
 
 ---
 
-#### Labbé Distance
+#### Labbé Distance (IRAMUTEQ algorithm)
 
-Measures the absolute difference in frequencies:
+The Labbé distance, implemented according to the original IRAMUTEQ algorithm, explicitly
+handles length asymmetry between texts. The algorithm proceeds as follows:
 
-$$D_{{\\text{{Labbé}}}}(A, B) = \\frac{{1}}{{2}} \\sum_{{i=1}}^{{V}} |f_i(A) - f_i(B)|$$
+1. **Identify** the smaller ($N_{{small}}$) and larger ($N_{{large}}$) texts
+2. **Scale** the larger text's counts: $n'_i = n_i \\times U$ where $U = N_{{small}} / N_{{large}}$
+3. **Compute** sum of absolute differences on scaled counts
+4. **Normalize** by the adjusted denominator
 
-This is a **normalized L1 (Manhattan) distance**.
+$$D_{{\\text{{Labbé}}}}(A, B) = \\frac{{\\sum_{{i=1}}^{{V}} |n_{{small}}(i) - n'_{{large}}(i)|}}{{N_{{small}} + \\sum_{{n'_i \\geq 1}} n'_i}}$$
+
+This approach is particularly suited for comparing texts of different lengths.
 
 ---
 
 #### Jensen-Shannon Divergence
 
-Measures the informational divergence between distributions.
+Measures the informational divergence between probability distributions.
 
 $$D_{{\\text{{JS}}}}(A, B) = \\frac{{1}}{{2}} D_{{\\text{{KL}}}}(P_A \\| M) + \\frac{{1}}{{2}} D_{{\\text{{KL}}}}(P_B \\| M)$$
 
-where $M = (P_A + P_B) / 2$ is the mean distribution.
+where $M = (P_A + P_B) / 2$ is the mean distribution and $P$ represents relative frequencies.
 
 ---
 
@@ -182,19 +199,22 @@ where $M = (P_A + P_B) / 2$ is the mean distribution.
 
 | Aspect | Labbé | Jensen-Shannon |
 |--------|-------|----------------|
+| **Input** | Scaled raw counts | Relative frequencies |
+| **Asymmetry** | Explicitly handled | Symmetric |
 | **Sensitivity** | Linear | Logarithmic |
 | **Rare words** | Low impact | **High impact** |
-| **Foundation** | Geometric (L1) | Information theory |
+| **Foundation** | IRAMUTEQ algorithm | Information theory |
 
 ---
 
 #### Application to French Rap
 
 **JS is more sensitive to slang words specific** to certain artists/themes.
-**Labbé better captures the global homogeneity** of common vocabulary.
+**Labbé better captures the global homogeneity** of common vocabulary and handles
+length differences between verses better.
 
 **Recommendation:** Use both metrics as complements:
-- **Labbé** for general lexical homogeneity
+- **Labbé** for general lexical homogeneity (robust to length differences)
 - **JS** to detect distinctive vocabularies
 
 """
@@ -229,13 +249,13 @@ def generate_intra_topic_distance_section(distance_results: dict, lang: str = 'f
         else:
             return t('very_heterogeneous')
 
-    md = f"""{t('q5_title')}
+    md = f"""### {t('q5_title')}
 
 {t('q5_research')}
 
 {t('q5_intro')}
 
-{t('q5_method')}
+#### {t('q5_method')}
 
 {t('q5_method_text')}
 
@@ -254,7 +274,7 @@ def generate_intra_topic_distance_section(distance_results: dict, lang: str = 'f
 
 {get_metric_description('labbe_distance', lang)}
 
-{t('q5_results')}
+#### {t('q5_results')}
 
 """
 
@@ -308,7 +328,7 @@ def generate_intra_topic_distance_section(distance_results: dict, lang: str = 'f
 
 3. {t('q5_obs2')}
 
-{t('q5_per_topic')}
+#### {t('q5_per_topic')}
 
 {t('q5_per_topic_intro')}
 
@@ -345,6 +365,312 @@ def generate_intra_topic_distance_section(distance_results: dict, lang: str = 'f
             md += "\n"
 
     md += f"\n{t('q5_appendix_ref')}\n\n"
+
+    return md
+
+
+def generate_topic_distance_4configs_section(
+    topic_distance_results: dict,
+    aggregation_size: int = 20,
+    lang: str = 'fr'
+) -> str:
+    """
+    Generate markdown section for all 4 distance configurations (Q5 extended).
+
+    Parameters
+    ----------
+    topic_distance_results : dict
+        Results from evaluate_topic_distances for each model.
+        Structure: {model: {config_name: {'js': {...}, 'labbe': {...}}}}
+    aggregation_size : int
+        Number of verses aggregated (for display).
+    lang : str
+        Language for translations.
+
+    Returns
+    -------
+    str
+        Markdown section content.
+    """
+    t = lambda key: get_text(key, lang)
+
+    # Build config names dynamically
+    configs = [
+        ('intra_all_paired', t('config_intra_all_paired'), t('config_intra_all_paired_desc'), 'homogeneity'),
+        ('inter_all_paired', t('config_inter_all_paired'), t('config_inter_all_paired_desc'), 'separation'),
+        (f'intra_aggregated_{aggregation_size}', t('config_intra_aggregated') + f' (n={aggregation_size})',
+         t('config_intra_aggregated_desc'), 'homogeneity'),
+        (f'inter_aggregated_{aggregation_size}', t('config_inter_aggregated') + f' (n={aggregation_size})',
+         t('config_inter_aggregated_desc'), 'separation'),
+    ]
+
+    md = f"""#### {t('q5_4configs_title')}
+
+{t('q5_4configs_intro')}
+
+| {t('config_table_header')} | {t('what_it_measures')} | {t('interpretation_guide')} |
+|--------------|----------------------|----------------------|
+| **{t('config_intra_all_paired')}** | {t('homogeneity')} | {t('lower_better')} |
+| **{t('config_inter_all_paired')}** | {t('separation')} | {t('higher_better')} |
+| **{t('config_intra_aggregated')}** (n={aggregation_size}) | {t('homogeneity')} | {t('lower_better')} |
+| **{t('config_inter_aggregated')}** (n={aggregation_size}) | {t('separation')} | {t('higher_better')} |
+
+{t('aggregation_note').format(n=aggregation_size)}
+
+"""
+
+    # Generate tables for each configuration
+    for config_key, config_label, config_desc, config_type in configs:
+        md += f"**{config_label}**\n\n"
+        md += f"*{config_desc}*\n\n"
+
+        # Jensen-Shannon table
+        md += f"| {t('model')} | JS | Labbé |\n"
+        md += "|-------|------|-------|\n"
+
+        for model in ['bertopic', 'lda', 'iramuteq']:
+            model_results = topic_distance_results.get(model, {})
+            config_results = model_results.get(config_key, {})
+            js_mean = config_results.get('js', {}).get('mean', 0)
+            labbe_mean = config_results.get('labbe', {}).get('mean', 0)
+            md += f"| {model.upper()} | {js_mean:.4f} | {labbe_mean:.4f} |\n"
+
+        md += "\n"
+
+    # Summary: find best model for each configuration type
+    md += f"{t('q5_summary_4configs')}\n\n"
+
+    # Best homogeneity (lowest intra distance)
+    best_homo_js = None
+    best_homo_js_val = float('inf')
+    best_homo_labbe = None
+    best_homo_labbe_val = float('inf')
+
+    for model in ['bertopic', 'lda', 'iramuteq']:
+        model_results = topic_distance_results.get(model, {})
+        intra_results = model_results.get('intra_all_paired', {})
+        js_val = intra_results.get('js', {}).get('mean', float('inf'))
+        labbe_val = intra_results.get('labbe', {}).get('mean', float('inf'))
+        if js_val < best_homo_js_val:
+            best_homo_js_val = js_val
+            best_homo_js = model
+        if labbe_val < best_homo_labbe_val:
+            best_homo_labbe_val = labbe_val
+            best_homo_labbe = model
+
+    # Best separation (highest inter distance)
+    best_sep_js = None
+    best_sep_js_val = 0
+    best_sep_labbe = None
+    best_sep_labbe_val = 0
+
+    for model in ['bertopic', 'lda', 'iramuteq']:
+        model_results = topic_distance_results.get(model, {})
+        inter_results = model_results.get('inter_all_paired', {})
+        js_val = inter_results.get('js', {}).get('mean', 0)
+        labbe_val = inter_results.get('labbe', {}).get('mean', 0)
+        if js_val > best_sep_js_val:
+            best_sep_js_val = js_val
+            best_sep_js = model
+        if labbe_val > best_sep_labbe_val:
+            best_sep_labbe_val = labbe_val
+            best_sep_labbe = model
+
+    if best_homo_js:
+        md += f"- **{t('q5_best_homogeneity')} (JS):** {best_homo_js.upper()} ({best_homo_js_val:.4f})\n"
+    if best_homo_labbe:
+        md += f"- **{t('q5_best_homogeneity')} (Labbé):** {best_homo_labbe.upper()} ({best_homo_labbe_val:.4f})\n"
+    if best_sep_js:
+        md += f"- **{t('q5_best_separation')} (JS):** {best_sep_js.upper()} ({best_sep_js_val:.4f})\n"
+    if best_sep_labbe:
+        md += f"- **{t('q5_best_separation')} (Labbé):** {best_sep_labbe.upper()} ({best_sep_labbe_val:.4f})\n"
+
+    md += "\n"
+
+    return md
+
+
+# =============================================================================
+# AGGREGATION STABILIZATION CURVE SECTION
+# =============================================================================
+
+def generate_aggregation_curve_section(
+    multi_agg_results: dict,
+    agg_metadata: dict = None,
+    lang: str = 'fr',
+) -> str:
+    """
+    Generate markdown section for the aggregation size vs Labbé distance curve.
+
+    Includes the plot reference and per-aggregation-size inter-topic tables
+    (one table per aggregation size, transposed: rows=topics).
+
+    Parameters
+    ----------
+    multi_agg_results : dict
+        {model_name: {agg_size: {mode: {'labbe': {'mean', 'std', 'per_topic'}}}}}
+    agg_metadata : dict, optional
+        Metadata from compute_aggregation_range: 'agg_min', 'agg_max',
+        'min_topic_size', 'mean_doc_length'.
+    lang : str
+        Language for translations.
+    """
+    t = lambda key: get_text(key, lang)
+
+    md = f"\n#### {t('q5_agg_curve_title')}\n\n"
+    md += f"{t('q5_agg_curve_intro')}\n\n"
+
+    # Show range metadata if available
+    if agg_metadata:
+        md += t('q5_agg_curve_range').format(
+            min_agg=agg_metadata.get('agg_min', '?'),
+            max_agg=agg_metadata.get('agg_max', '?'),
+            min_words=agg_metadata.get('min_words_per_unit', 1000),
+            min_units=agg_metadata.get('min_units_per_topic', 10),
+            min_topic_size=agg_metadata.get('min_topic_size', '?'),
+            n_points=agg_metadata.get('n_points', '?'),
+        ) + "\n\n"
+
+    # Figure reference
+    md += f"![Aggregation Curve](figures/aggregation_curve.png)\n\n"
+    md += f"{t('q5_agg_curve_fig_caption')}\n\n"
+
+    return md
+
+
+# =============================================================================
+# INTER-TOPIC SEPARATION RANKING SECTION
+# =============================================================================
+
+def generate_inter_topic_ranking_section(
+    centroid_results: dict,
+    topic_labels_per_model: dict = None,
+    lang: str = 'fr',
+) -> str:
+    """
+    Generate markdown section for the inter-topic separation ranking.
+
+    Uses centroid distances (each topic merged into one doc vs rest)
+    for maximum discrimination.
+
+    Parameters
+    ----------
+    centroid_results : dict
+        {model: {'labbe': {'per_topic': {...}}, 'js': {'per_topic': {...}}}}
+    topic_labels_per_model : dict, optional
+        {model: {topic_id: label_string}}
+    lang : str
+        Language for translations.
+    """
+    t = lambda key: get_text(key, lang)
+
+    if topic_labels_per_model is None:
+        topic_labels_per_model = {}
+
+    md = f"\n#### {t('q5_inter_ranking_title')}\n\n"
+    md += f"{t('q5_inter_ranking_intro')}\n\n"
+
+    for model in ['bertopic', 'lda', 'iramuteq']:
+        centroid_data = centroid_results.get(model, {})
+        labbe_per_topic = centroid_data.get('labbe', {}).get('per_topic', {})
+
+        if not labbe_per_topic:
+            continue
+
+        js_per_topic = centroid_data.get('js', {}).get('per_topic', {})
+        labels = topic_labels_per_model.get(model, {})
+
+        # Figure reference
+        md += f"![{model.upper()} Ranking](figures/inter_topic_ranking_{model}.png)\n\n"
+        md += f"{t('q5_inter_ranking_fig_caption').format(model=model.upper())}\n\n"
+
+        # Sort by Labbé distance
+        sorted_topics = sorted(
+            labbe_per_topic.items(),
+            key=lambda x: x[1].get('mean_distance', 0),
+            reverse=True
+        )
+
+        n_show = min(3, len(sorted_topics))
+
+        def _label(tid):
+            return labels.get(str(tid), labels.get(tid, f"Topic {tid}"))
+
+        # Most distinct (highest distance)
+        md += f"{t('q5_inter_ranking_most_distinct')}\n\n"
+        md += f"| Topic | {t('mean_labbe_distance')} | {t('mean_js_inter_distance')} |\n"
+        md += "|-------|-----------------|----------------|\n"
+        for tid, stats in sorted_topics[:n_show]:
+            labbe_val = stats.get('mean_distance', 0)
+            js_val = js_per_topic.get(tid, {}).get('mean_distance', 0)
+            md += f"| {_label(tid)} | {labbe_val:.4f} | {js_val:.4f} |\n"
+        md += "\n"
+
+        # Least distinct (lowest distance)
+        md += f"{t('q5_inter_ranking_least_distinct')}\n\n"
+        md += f"| Topic | {t('mean_labbe_distance')} | {t('mean_js_inter_distance')} |\n"
+        md += "|-------|-----------------|----------------|\n"
+        for tid, stats in sorted_topics[-n_show:]:
+            labbe_val = stats.get('mean_distance', 0)
+            js_val = js_per_topic.get(tid, {}).get('mean_distance', 0)
+            md += f"| {_label(tid)} | {labbe_val:.4f} | {js_val:.4f} |\n"
+        md += "\n"
+
+    return md
+
+
+# =============================================================================
+# χ²/n WORD × TOPIC INDEPENDENCE TEST SECTION
+# =============================================================================
+
+def generate_word_topic_chi2_section(
+    chi2_results: dict,
+    topic_labels_per_model: dict = None,
+    lang: str = 'fr',
+) -> str:
+    """
+    Generate markdown section for χ²/n word × topic independence test.
+
+    Parameters
+    ----------
+    chi2_results : dict
+        {'non_lemmatized': {model: result_dict}, 'lemmatized': {model: result_dict}}
+    topic_labels_per_model : dict, optional
+        {model: {topic_id: label_string}}
+    lang : str
+        Language for translations.
+    """
+    t = lambda key: get_text(key, lang)
+
+    if topic_labels_per_model is None:
+        topic_labels_per_model = {}
+
+    md = f"\n#### {t('q5_chi2_title')}\n\n"
+    md += f"{t('q5_chi2_intro')}\n\n"
+    md += f"{t('q5_chi2_explanation')}\n\n"
+
+    for variant_key in ['non_lemmatized', 'lemmatized']:
+        variant_data = chi2_results.get(variant_key, {})
+        if not variant_data:
+            continue
+
+        md += f"**{t(variant_key)}**\n\n"
+
+        # Global summary table
+        md += f"| Model | χ² | {t('total_tokens_label')} | {t('chi2_over_n_label')} | {t('vocab_size_label')} |\n"
+        md += "|-------|-----|--------|--------|----------|\n"
+
+        for model in ['bertopic', 'lda', 'iramuteq']:
+            r = variant_data.get(model, {})
+            if not r:
+                continue
+            md += (f"| {model.upper()} "
+                   f"| {r.get('chi2', 0):,.0f} "
+                   f"| {r.get('n', 0):,} "
+                   f"| {r.get('chi2_over_n', 0):.4f} "
+                   f"| {r.get('vocab_size', 0):,} |\n")
+
+        md += "\n"
 
     return md
 
@@ -493,8 +819,9 @@ def generate_run_description(run_data: dict, model_name: str, model_type: str,
 
     temporal_metrics = metrics.get('temporal_metrics', {})
     mean_variance = temporal_metrics.get('mean_variance', 'N/A')
-    mean_biannual_js = temporal_metrics.get('mean_biannual_js', 'N/A')
-    decade_changes = temporal_metrics.get('decade_changes', {})
+    # Backward compat: try annual first, fall back to biannual
+    mean_annual_js = temporal_metrics.get('mean_annual_js',
+                     temporal_metrics.get('mean_biannual_js', 'N/A'))
 
     coherence_metrics = metrics.get('coherence_metrics', {})
     silhouette_metrics = metrics.get('silhouette_metrics', {})
@@ -641,26 +968,19 @@ def generate_run_description(run_data: dict, model_name: str, model_type: str,
 
     # Temporal dynamics
     mean_variance_str = f"{mean_variance:.6f}" if isinstance(mean_variance, float) else 'N/A'
-    mean_biannual_js_str = f"{mean_biannual_js:.4f}" if isinstance(mean_biannual_js, float) else 'N/A'
+    mean_annual_js_str = f"{mean_annual_js:.4f}" if isinstance(mean_annual_js, float) else 'N/A'
     md += f"""
 #### {t('temporal_dynamics')}
 
 | {t('metric')} | {t('value')} |
 |--------|-------|
 | {t('mean_topic_variance')} | {mean_variance_str} |
-| {t('mean_biannual_js')} | {mean_biannual_js_str} |
+| {t('mean_annual_js')} | {mean_annual_js_str} |
 
 """
-    if decade_changes:
-        md += f"{t('decade_transitions_title')}\n\n"
-        for transition, js_val in decade_changes.items():
-            interpretation = t('major_shift') if js_val > 0.15 else t('moderate_change') if js_val > 0.08 else t('stable_temporal')
-            md += f"- {transition}: {js_val:.4f} ({interpretation})\n"
-        md += "\n"
-
-    if 'biannual_js_divergence' in copied_figures:
-        md += f"![Biannual JS]({copied_figures['biannual_js_divergence']})\n\n"
-        md += f"{t('biannual_caption')}\n\n"
+    if 'annual_js_divergence' in copied_figures:
+        md += f"![Annual JS]({copied_figures['annual_js_divergence']})\n\n"
+        md += f"{t('annual_caption')}\n\n"
 
     if 'year_topic_heatmap' in copied_figures:
         md += f"![Year-Topic Heatmap]({copied_figures['year_topic_heatmap']})\n\n"
@@ -686,13 +1006,13 @@ def generate_run_description(run_data: dict, model_name: str, model_type: str,
                 ctfidf_words = ctfidf.get('words', [])[:10] if isinstance(ctfidf, dict) else []
                 ctfidf_str = ', '.join(ctfidf_words)
 
-                keybert = topic_data.get('keybert', [])[:20]
+                keybert = topic_data.get('keybert', [])
                 keybert_str = ', '.join(keybert)
 
                 md += f"""**Topic {tid}** — *{openai_label}*
 
 - **c-TF-IDF:** {ctfidf_str}
-- **KeyBERT (20 terms):** {keybert_str}
+- **KeyBERT ({len(keybert)} terms):** {keybert_str}
 
 """
     else:

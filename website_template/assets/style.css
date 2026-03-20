@@ -1,0 +1,154 @@
+/* Custom CSS for JADT Topic Modeling Website */
+
+:root {
+    --jadt-primary: #4a6fa5;
+    --jadt-secondary: #6c757d;
+    --jadt-bg: #f5f6f8;
+    --jadt-card-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    --jadt-border: #e2e6ea;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--jadt-bg);
+    color: #333;
+}
+
+/* Page container */
+.page-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+}
+
+/* Section headers */
+.section-header {
+    border-bottom: 2px solid var(--jadt-border);
+    padding-bottom: 0.5rem;
+    margin-bottom: 1.5rem;
+    margin-top: 2rem;
+    color: #2c3e50;
+    font-weight: 600;
+}
+
+/* Metric cards */
+.card {
+    border: 1px solid var(--jadt-border);
+    border-radius: 10px;
+}
+.metric-card {
+    border-radius: 10px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Tab content padding */
+.tab-content {
+    padding-top: 1rem;
+}
+
+/* Topic label badges */
+.topic-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    color: white;
+    font-size: 0.85rem;
+    margin: 2px;
+}
+
+/* Tables */
+.dash-table .cell-table {
+    font-size: 0.85rem;
+}
+
+/* Plotly chart containers */
+.chart-container {
+    background: white;
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    box-shadow: var(--jadt-card-shadow);
+    border: 1px solid var(--jadt-border);
+}
+
+/* Footer */
+.footer {
+    text-align: center;
+    padding: 1.5rem;
+    margin-top: 3rem;
+    border-top: 1px solid var(--jadt-border);
+    color: var(--jadt-secondary);
+    font-size: 0.85rem;
+}
+
+/* Navbar adjustments */
+.navbar {
+    padding: 0.6rem 1rem;
+}
+.navbar-brand {
+    font-size: 1rem !important;
+    letter-spacing: -0.02em;
+}
+
+/* Iframe container for embedded HTML */
+.iframe-container {
+    width: 100%;
+    border: 1px solid var(--jadt-border);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.iframe-container iframe {
+    width: 100%;
+    height: 700px;
+    border: none;
+}
+
+/* Home page header */
+.home-header {
+    max-width: 900px;
+    margin: 0 auto 1.5rem auto;
+    text-align: center;
+}
+.home-abstract {
+    max-width: 900px;
+    margin: 0 auto;
+    text-align: justify;
+    line-height: 1.7;
+}
+
+/* Corpus explorer card */
+.corpus-card {
+    border-left: 3px solid var(--jadt-primary);
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+    background: white;
+}
+
+/* Metric footnotes */
+.metric-footnote {
+    font-size: 0.82rem;
+    color: #6c757d;
+    line-height: 1.6;
+    margin-top: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+/* IRAMUTEQ static images */
+.iramuteq-img-container img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .page-container {
+        padding: 1rem 0.75rem;
+    }
+}

@@ -39,7 +39,7 @@ from utils.utils_evaluation import (
     create_topic_distribution_plot,
     create_artist_topics_heatmap,
     create_artist_specialization_plot,
-    create_biannual_js_plot,
+    create_annual_js_plot,
     create_year_topic_heatmap,
     print_evaluation_summary,
 )
@@ -182,7 +182,8 @@ def create_corpus(df: pd.DataFrame, text_column: str = 'lyrics_cleaned',
                   use_ngrams: str = 'both',
                   ngram_min_count: int = 10,
                   ngram_threshold: int = 50,
-                  save_path: str = None) -> tuple:
+                  save_path: str = None,
+                  keep_all_the_document: bool = True) -> tuple:
     """
     Create corpus for LDA from dataframe.
 
@@ -212,7 +213,7 @@ def create_corpus(df: pd.DataFrame, text_column: str = 'lyrics_cleaned',
 
     for idx, text in enumerate(raw_texts):
         tokens = tokenize_simple(text, min_word_len)
-        if len(tokens) >= 3:
+        if keep_all_the_document or len(tokens) >= 3:
             texts.append(tokens)
             valid_indices.append(idx)
         if (idx + 1) % 10000 == 0:
@@ -460,9 +461,8 @@ def save_results(results: dict, lda_model, dictionary, corpus, df, doc_topics, d
         },
         'temporal_metrics': {
             'mean_variance': results['temporal_separation']['mean_temporal_variance'],
-            'decade_changes': results['temporal_separation'].get('decade_changes', {}),
-            'biannual_changes': results['temporal_separation'].get('biannual_changes', {}),
-            'mean_biannual_js': results['temporal_separation'].get('mean_biannual_js'),
+            'annual_changes': results['temporal_separation'].get('annual_changes', {}),
+            'mean_annual_js': results['temporal_separation'].get('mean_annual_js'),
         },
         'parameters': results['parameters'],
     }
@@ -580,9 +580,9 @@ def create_visualizations(results: dict, doc_topics: np.ndarray, dominant_topics
     # 7. Artist specialization plot (using shared utility)
     create_artist_specialization_plot(results['artist_separation'], run_dir)
 
-    # 8. Biannual JS divergence plot (using shared utility)
-    create_biannual_js_plot(results['temporal_separation'], run_dir,
-                            title="LDA - 2-Year Window JS Divergence")
+    # 8. Annual JS divergence plot (using shared utility)
+    create_annual_js_plot(results['temporal_separation'], run_dir,
+                           title="LDA - Annual JS Divergence")
 
     print("  All visualizations saved!")
 
@@ -605,10 +605,8 @@ def print_summary(results: dict):
 
     print("\n[TEMPORAL EVOLUTION]")
     print(f"   Mean Temporal Variance: {results['temporal_separation']['mean_temporal_variance']:.6f}")
-    if 'decade_changes' in results['temporal_separation']:
-        print("   Decade Changes (JS divergence):")
-        for period, change in results['temporal_separation']['decade_changes'].items():
-            print(f"      {period}: {change:.4f}")
+    if 'mean_annual_js' in results['temporal_separation']:
+        print(f"   Mean Annual JS: {results['temporal_separation']['mean_annual_js']:.4f}")
 
     print("\n[TOPIC TRENDS]")
     increasing = []
@@ -631,7 +629,8 @@ def run_experiment(num_topics: int = 20, alpha: str = 'symmetric', eta: str = 'a
                    sample_size: int = None, corpus_path: str = None,
                    save_corpus: bool = True, create_pyldavis_html: bool = True,
                    num_words_per_topic: int = 30, top_artists_per_topic: int = 20,
-                   top_n_artists_heatmap: int = 50):
+                   top_n_artists_heatmap: int = 50,
+                   keep_all_the_document: bool = True):
     """
     Run a complete LDA experiment with given parameters.
 
@@ -676,7 +675,8 @@ def run_experiment(num_topics: int = 20, alpha: str = 'symmetric', eta: str = 'a
             use_ngrams=use_ngrams,
             ngram_min_count=ngram_min_count,
             ngram_threshold=ngram_threshold,
-            save_path=corpus_save_path
+            save_path=corpus_save_path,
+            keep_all_the_document=keep_all_the_document
         )
 
     # Train LDA
@@ -725,6 +725,7 @@ def run_experiment(num_topics: int = 20, alpha: str = 'symmetric', eta: str = 'a
             'vocabulary_size': len(dictionary),
             'num_documents': len(corpus),
             'num_words_per_topic': num_words_per_topic,
+            'keep_all_the_document': keep_all_the_document,
             'timestamp': timestamp,
             'run_dir': run_dir,
         }
@@ -767,6 +768,8 @@ if __name__ == "__main__":
                         help='N-gram mode: unigrams, bigrams (uni+bi), trigrams (uni+tri), both (uni+bi+tri), ngrams_only (bi+tri), bigram_only (only bigrams), trigram_only (only trigrams)')
     parser.add_argument('--ngram-min-count', type=int, default=10, help='Min count for n-gram detection')
     parser.add_argument('--ngram-threshold', type=int, default=50, help='Threshold for n-gram detection')
+    parser.add_argument('--filter-short-docs', action='store_true',
+                        help='Filter out documents with < 3 tokens (default: keep all documents)')
 
     args = parser.parse_args()
 
@@ -790,4 +793,5 @@ if __name__ == "__main__":
         use_ngrams=args.ngrams,
         ngram_min_count=args.ngram_min_count,
         ngram_threshold=args.ngram_threshold,
+        keep_all_the_document=not args.filter_short_docs,
     )

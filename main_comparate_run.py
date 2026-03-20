@@ -45,7 +45,15 @@ from utils.comparaison_utils import (
     # Q5: Intra-topic distances (tokenization)
     SpaCyTokenizer,
     NLTKTokenizer,
-    evaluate_topic_coherence_from_tokens,
+    SimpleSpaceTokenizer,
+    evaluate_topic_distances,
+    compute_aggregation_range,
+    evaluate_multi_aggregation,
+    compute_topic_centroid_distances,
+    compute_word_topic_chi2,
+    compute_full_vocab_jaccard,
+    compute_cross_model_full_vocab_jaccard,
+    build_topic_labels,
     # Visualizations
     create_sankey_diagram,
     create_agreement_heatmap,
@@ -54,6 +62,8 @@ from utils.comparaison_utils import (
     create_vocabulary_comparison_plot,
     create_corpus_year_distribution,
     create_decade_breakdown_plot,
+    create_aggregation_curve_plot,
+    create_inter_topic_ranking_plot,
     copy_run_figures,
     # Report
     generate_comparison_report,
@@ -143,10 +153,20 @@ Examples:
         help='PDF generation engine: latex (default, better equations) or markdown (pypandoc)'
     )
     parser.add_argument(
+        '--tokenizer', type=str, default='spacy',
+        choices=['spacy', 'nltk', 'space'],
+        help='Tokenizer for distance metrics: spacy (default, accurate), nltk (faster), or space (fastest, for testing)'
+    )
+    parser.add_argument(
         '--spacy-model', type=str, default='fr_core_news_lg',
-        choices=['fr_core_news_sm', 'fr_core_news_md', 'fr_core_news_lg', 'none'],
+        choices=['fr_core_news_sm', 'fr_core_news_md', 'fr_core_news_lg'],
         dest='spacy_model',
-        help='Tokenizer for distance metrics: spaCy model sm/md/lg (default: lg), or "none" for NLTK fallback (no lemmatization)'
+        help='SpaCy model to use when --tokenizer=spacy (default: fr_core_news_lg)'
+    )
+    parser.add_argument(
+        '--aggregation-size', type=int, default=20,
+        dest='aggregation_size',
+        help='Number of verses to aggregate for aggregated distance modes (default: 20)'
     )
 
     return parser.parse_args()
@@ -244,6 +264,17 @@ def main():
     lda_topics = lda_df['topic'].values
     iramuteq_topics = iramuteq_df['topic'].values
 
+    # Build human-readable topic labels per model
+    topic_labels_per_model = {}
+    for model_name, model_data, model_type in [
+        ('bertopic', bertopic_data, 'bertopic'),
+        ('lda', lda_data, 'lda'),
+        ('iramuteq', iramuteq_data, 'iramuteq'),
+    ]:
+        topics = model_data.get('topics', {})
+        if topics:
+            topic_labels_per_model[model_name] = build_topic_labels(topics, model_type)
+
     # Q1: Model Agreement
     print("\n[5/9] Computing Q1: Model Agreement...")
     print("  Computing ARI, NMI, AMI for all pairs...")
@@ -314,7 +345,7 @@ def main():
             vocabulary_results[f'{model}_distinctiveness'] = 0
             print(f"    {model.upper()}: No vocabulary data available")
 
-    # Cross-model vocabulary comparison (BERTopic vs LDA)
+    # Cross-model vocabulary comparison (BERTopic vs LDA) — top-N words
     if bertopic_data.get('topics') and lda_data.get('topics'):
         correspondences = agreement_results['bertopic_vs_lda']['contingency']['correspondences']
         vocabulary_results['bertopic_vs_lda'] = compare_topic_vocabularies(
@@ -323,15 +354,21 @@ def main():
             correspondences,
             top_n=args.top_words
         )
-        print(f"    BERTopic vs LDA vocabulary: Mean Jaccard={vocabulary_results['bertopic_vs_lda']['mean_jaccard']:.4f}")
+        print(f"    BERTopic vs LDA vocabulary (top-{args.top_words}): Mean Jaccard={vocabulary_results['bertopic_vs_lda']['mean_jaccard']:.4f}")
 
-    # Q5: Intra-topic Distance Analysis (SpaCy tokenization, done ONCE for all models)
-    print("\n[9/9] Computing Q5: Intra-topic Distances...")
-    intra_topic_results = {}
+    # Q5: Topic Distance Analysis (4 configurations)
+    # Configurations:
+    # - intra_all_paired: pairwise distances within topics (homogeneity)
+    # - inter_all_paired: distances between inside and outside topic (separation)
+    # - intra_aggregated: intra-topic with aggregated documents
+    # - inter_aggregated: inter-topic with aggregated documents
+    print("\n[9/9] Computing Q5: Topic Distances (4 configurations)...")
+    topic_distance_results = {}
 
     # Load corpus with text for distance computation
     corpus_path = Path(args.corpus)
     corpus_tokens = None  # Pre-tokenized corpus (list of token lists)
+    corpus_tokens_lemma = None  # Lemmatized variant (SpaCy only)
 
     if corpus_path.exists():
         print(f"  Loading corpus text from {corpus_path}...")
@@ -347,9 +384,18 @@ def main():
             print(f"  Loaded {len(documents_for_tokenization)} documents with text column '{text_col}'")
 
             # Tokenize ALL documents ONCE (done once, reused for all 3 models)
-            spacy_model = getattr(args, 'spacy_model', 'fr_core_news_lg')
+            tokenizer_type = getattr(args, 'tokenizer', 'spacy')
 
-            if spacy_model == 'none':
+            if tokenizer_type == 'space':
+                # Simple space tokenizer (fastest, for testing)
+                print(f"\n  Tokenizing corpus with simple space tokenizer (fastest) - done ONCE for all models...")
+                tokenizer = SimpleSpaceTokenizer(
+                    lowercase=True,
+                    min_word_length=2,
+                    remove_stopwords=True,
+                )
+                corpus_tokens = tokenizer.batch_tokenize(documents_for_tokenization, verbose=True)
+            elif tokenizer_type == 'nltk':
                 # NLTK fallback: no lemmatization, simpler tokenization
                 print(f"\n  Tokenizing corpus with NLTK (no lemmatization) - done ONCE for all models...")
                 tokenizer = NLTKTokenizer(
@@ -357,9 +403,11 @@ def main():
                     min_word_length=2,
                     remove_stopwords=True,
                 )
+                corpus_tokens = tokenizer.batch_tokenize(documents_for_tokenization, verbose=True)
             else:
-                # SpaCy: POS-aware tokenization, no lemmatization
-                print(f"\n  Tokenizing corpus with SpaCy ({spacy_model}) - done ONCE for all models...")
+                # SpaCy: dual tokenization (surface + lemma) in a single pass
+                spacy_model = getattr(args, 'spacy_model', 'fr_core_news_lg')
+                print(f"\n  Tokenizing corpus with SpaCy ({spacy_model}) - dual mode (surface + lemma)...")
                 tokenizer = SpaCyTokenizer(
                     model_name=spacy_model,
                     lowercase=True,
@@ -369,8 +417,8 @@ def main():
                     batch_size=1000,
                     n_process=12
                 )
-
-            corpus_tokens = tokenizer.batch_tokenize(documents_for_tokenization, verbose=True)
+                corpus_tokens, corpus_tokens_lemma = tokenizer.batch_tokenize_dual(
+                    documents_for_tokenization, verbose=True)
 
             # Create index mapping for merging
             corpus_df = corpus_df[[text_col]].copy()
@@ -379,16 +427,33 @@ def main():
         print(f"  Warning: Corpus file not found: {corpus_path}")
         corpus_df = None
 
+    # Define distance configurations
+    aggregation_size = getattr(args, 'aggregation_size', 20)
+    distance_configs = [
+        ('intra_all_paired', 'intra_all_paired'),
+        ('inter_all_paired', 'inter_all_paired'),
+        (f'intra_aggregated_{aggregation_size}', 'intra_aggregated'),
+        (f'inter_aggregated_{aggregation_size}', 'inter_aggregated'),
+    ]
+
     # Compute distances for each model using the PRE-TOKENIZED corpus
+    # Also cache model tokens for multi-aggregation evaluation
+    model_token_cache = {}
+
     for model_name, model_data, model_df in [
         ('bertopic', bertopic_data, bertopic_df),
         ('lda', lda_data, lda_df),
         ('iramuteq', iramuteq_data, iramuteq_df)
     ]:
+        topic_distance_results[model_name] = {}
+
         if corpus_tokens is None:
             print(f"    {model_name.upper()}: No tokenized corpus available, skipping distance computation")
-            intra_topic_results[f'{model_name}_js'] = {'mean': 0, 'std': 0, 'n_topics': 0, 'per_topic': {}}
-            intra_topic_results[f'{model_name}_labbe'] = {'mean': 0, 'std': 0, 'n_topics': 0, 'per_topic': {}}
+            for config_name, _ in distance_configs:
+                topic_distance_results[model_name][config_name] = {
+                    'js': {'mean': 0, 'std': 0, 'n_topics': 0, 'per_topic': {}},
+                    'labbe': {'mean': 0, 'std': 0, 'n_topics': 0, 'per_topic': {}}
+                }
             continue
 
         # Map model documents to tokenized corpus using original_index
@@ -410,26 +475,169 @@ def main():
                     valid_topics.append(topic)
 
             print(f"    {model_name.upper()}: Using {len(model_tokens)} pre-tokenized documents")
+
+            # Cache for multi-aggregation
+            model_token_cache[model_name] = (model_tokens, valid_topics)
         else:
             print(f"    {model_name.upper()}: No original_index column, skipping distance computation")
-            intra_topic_results[f'{model_name}_js'] = {'mean': 0, 'std': 0, 'n_topics': 0, 'per_topic': {}}
-            intra_topic_results[f'{model_name}_labbe'] = {'mean': 0, 'std': 0, 'n_topics': 0, 'per_topic': {}}
+            for config_name, _ in distance_configs:
+                topic_distance_results[model_name][config_name] = {
+                    'js': {'mean': 0, 'std': 0, 'n_topics': 0, 'per_topic': {}},
+                    'labbe': {'mean': 0, 'std': 0, 'n_topics': 0, 'per_topic': {}}
+                }
             continue
 
-        # Compute both JS and Labbé distances using pre-tokenized documents
-        print(f"    {model_name.upper()}: Computing distances from pre-tokenized documents...")
-        distance_results = evaluate_topic_coherence_from_tokens(
-            model_tokens,
-            valid_topics,
-            distance_type='both',
-            sample_size=50,
-            random_seed=42,
-            verbose=False
-        )
+        # Compute all 4 distance configurations
+        print(f"    {model_name.upper()}: Computing 4 distance configurations...")
+        for config_name, mode in distance_configs:
+            print(f"      Computing {config_name}...")
+            distance_results = evaluate_topic_distances(
+                model_tokens,
+                valid_topics,
+                mode=mode,
+                distance_type='both',
+                aggregation_size=aggregation_size,
+                sample_size=5000,
+                random_seed=42,
+                verbose=False  # Suppress per-topic output
+            )
+            topic_distance_results[model_name][config_name] = distance_results
 
-        intra_topic_results[f'{model_name}_js'] = distance_results.get('js', {'mean': 0, 'std': 0, 'n_topics': 0, 'per_topic': {}})
-        intra_topic_results[f'{model_name}_labbe'] = distance_results.get('labbe', {'mean': 0, 'std': 0, 'n_topics': 0, 'per_topic': {}})
-        print(f"      JS mean: {intra_topic_results[f'{model_name}_js']['mean']:.4f}, Labbé mean: {intra_topic_results[f'{model_name}_labbe']['mean']:.4f}")
+            js_mean = distance_results.get('js', {}).get('mean', 0)
+            labbe_mean = distance_results.get('labbe', {}).get('mean', 0)
+            print(f"        JS={js_mean:.4f}, Labbé={labbe_mean:.4f}")
+
+    # Q5 Feature: Multi-aggregation stabilization curve
+    multi_agg_results = {}
+    agg_metadata = None
+
+    if model_token_cache:
+        print("\n[*] Computing aggregation stabilization curve...")
+
+        # Find min_topic_size across ALL models for a shared range
+        global_min_topic_size = float('inf')
+        for model_name, (tokens, topics) in model_token_cache.items():
+            _, meta = compute_aggregation_range(tokens, topics)
+            model_min = meta.get('min_topic_size', float('inf'))
+            if model_min < global_min_topic_size:
+                global_min_topic_size = model_min
+
+        # Compute shared range using first model's tokens for mean_doc_length
+        # (all use same corpus tokens, so mean_doc_length is the same)
+        first_tokens, first_topics = next(iter(model_token_cache.values()))
+        agg_sizes, agg_metadata = compute_aggregation_range(
+            first_tokens, first_topics,
+            n_points=5, min_words_per_unit=500, min_units_per_topic=5,
+            min_step=10,
+            override_min_topic_size=int(global_min_topic_size)
+        )
+        agg_metadata['min_words_per_unit'] = 500
+        agg_metadata['min_units_per_topic'] = 5
+        agg_metadata['n_points'] = len(agg_sizes)
+
+        print(f"    Shared aggregation range: {agg_sizes[0]}-{agg_sizes[-1]} ({len(agg_sizes)} points)")
+        print(f"    Sizes: {agg_sizes}")
+        print(f"    Min topic size (global): {global_min_topic_size}")
+
+        for model_name, (tokens, topics) in model_token_cache.items():
+            print(f"    {model_name.upper()}: Computing multi-aggregation...")
+            multi_agg_results[model_name] = evaluate_multi_aggregation(
+                tokens, topics,
+                aggregation_sizes=agg_sizes,
+                distance_type='labbe',
+                sample_size=1000,
+                random_seed=42,
+                verbose=True
+            )
+
+    # Create backward-compatible intra_topic_results for legacy report support
+    # Uses intra_all_paired as the default (same as before)
+    intra_topic_results = {}
+    for model in ['bertopic', 'lda', 'iramuteq']:
+        default_config = topic_distance_results.get(model, {}).get('intra_all_paired', {})
+        intra_topic_results[f'{model}_js'] = default_config.get('js', {'mean': 0, 'std': 0, 'n_topics': 0, 'per_topic': {}})
+        intra_topic_results[f'{model}_labbe'] = default_config.get('labbe', {'mean': 0, 'std': 0, 'n_topics': 0, 'per_topic': {}})
+
+    # Q5 Feature: Topic centroid distances (one merged doc per topic vs rest)
+    centroid_results = {}
+    if model_token_cache:
+        print("\n[*] Computing topic centroid distances (one-vs-rest)...")
+        for model_name, (tokens, topics) in model_token_cache.items():
+            centroid_results[model_name] = compute_topic_centroid_distances(
+                tokens, topics, distance_type='both')
+            labbe_mean = centroid_results[model_name].get('labbe', {}).get('mean', 0)
+            print(f"    {model_name.upper()}: mean centroid Labbé = {labbe_mean:.4f}")
+
+    # Q5 Feature: Full vocabulary Jaccard (within-model pairwise)
+    full_vocab_jaccard = {}
+    if model_token_cache:
+        print("\n[*] Computing full vocabulary Jaccard (min_freq=5)...")
+        for model_name, (tokens, topics) in model_token_cache.items():
+            result = compute_full_vocab_jaccard(tokens, topics, min_freq=5)
+            full_vocab_jaccard[model_name] = result
+            print(f"    {model_name.upper()}: mean Jaccard={result['mean_jaccard']:.4f}, "
+                  f"vocab sizes: {', '.join(f'T{t}={s}' for t, s in list(result['vocab_sizes'].items())[:5])}...")
+
+    # Q5 Feature: Cross-model full vocabulary Jaccard (BERTopic vs LDA)
+    cross_model_jaccard = {}
+    if model_token_cache and 'bertopic' in model_token_cache and 'lda' in model_token_cache:
+        print("\n[*] Computing cross-model full vocabulary Jaccard...")
+        correspondences = agreement_results['bertopic_vs_lda']['contingency']['correspondences']
+        bert_tokens, bert_topics = model_token_cache['bertopic']
+        lda_tokens, lda_topics = model_token_cache['lda']
+        cross_model_jaccard['bertopic_vs_lda'] = compute_cross_model_full_vocab_jaccard(
+            bert_tokens, bert_topics, lda_topics, correspondences,
+            model_a_name='bertopic', model_b_name='lda',
+            min_freq_thresholds=[1, 5, 20]
+        )
+        for thresh, data in cross_model_jaccard['bertopic_vs_lda']['per_threshold'].items():
+            print(f"    BERTopic vs LDA (min_freq={thresh}): mean Jaccard={data['mean_jaccard']:.4f}")
+
+    # Q5 Feature: χ²/n word × topic independence test
+    chi2_results = {'non_lemmatized': {}, 'lemmatized': {}}
+
+    if model_token_cache:
+        print("\n[*] Computing χ²/n word × topic independence test...")
+
+        # Non-lemmatized (surface forms) — uses existing cached tokens
+        for model_name, (tokens, topics) in model_token_cache.items():
+            result = compute_word_topic_chi2(tokens, topics, min_word_freq=5)
+            chi2_results['non_lemmatized'][model_name] = result
+            print(f"    {model_name.upper()} (surface): χ²/n={result['chi2_over_n']:.4f}, "
+                  f"vocab={result['vocab_size']:,}, N={result['n']:,}")
+
+        # Lemmatized — build lemmatized token lists from corpus_tokens_lemma
+        if corpus_tokens_lemma is not None:
+            print("    Computing lemmatized variant...")
+            for model_name, model_data, model_df in [
+                ('bertopic', bertopic_data, bertopic_df),
+                ('lda', lda_data, lda_df),
+                ('iramuteq', iramuteq_data, iramuteq_df)
+            ]:
+                if model_name not in model_token_cache:
+                    continue
+                _, valid_topics = model_token_cache[model_name]
+
+                # Build lemmatized token list using same original_index mapping
+                if 'original_index' in model_df.columns:
+                    original_indices = model_df['original_index'].tolist()
+                    topics = model_df['topic'].tolist()
+                    lemma_tokens = []
+                    lemma_topics = []
+                    for idx, topic in zip(original_indices, topics):
+                        if 0 <= idx < len(corpus_tokens_lemma):
+                            lemma_tokens.append(corpus_tokens_lemma[idx])
+                            lemma_topics.append(topic)
+                        else:
+                            lemma_tokens.append([])
+                            lemma_topics.append(topic)
+
+                    result = compute_word_topic_chi2(lemma_tokens, lemma_topics, min_word_freq=5)
+                    chi2_results['lemmatized'][model_name] = result
+                    print(f"    {model_name.upper()} (lemma):   χ²/n={result['chi2_over_n']:.4f}, "
+                          f"vocab={result['vocab_size']:,}, N={result['n']:,}")
+        else:
+            print("    Lemmatized variant not available (requires SpaCy tokenizer)")
 
     # Generate visualizations
     if not args.no_figures:
@@ -503,6 +711,26 @@ def main():
             )
             print("    Saved: vocabulary_comparison.png")
 
+        # Q5 Feature: Aggregation stabilization curve
+        if multi_agg_results:
+            create_aggregation_curve_plot(
+                multi_agg_results,
+                str(figures_dir / 'aggregation_curve.png')
+            )
+            print("    Saved: aggregation_curve.png")
+
+        # Q5 Feature: Inter-topic separation ranking bar charts
+        for model in ['bertopic', 'lda', 'iramuteq']:
+            centroid_data = centroid_results.get(model, {})
+            if centroid_data and centroid_data.get('labbe', {}).get('per_topic'):
+                create_inter_topic_ranking_plot(
+                    centroid_data,
+                    model.upper(),
+                    str(figures_dir / f'inter_topic_ranking_{model}.png'),
+                    topic_labels=topic_labels_per_model.get(model)
+                )
+                print(f"    Saved: inter_topic_ranking_{model}.png")
+
     # Compile all results
     all_results = {
         'bertopic': bertopic_data,
@@ -512,7 +740,16 @@ def main():
         'artist_separation': artist_results,
         'temporal': temporal_results,
         'vocabulary': vocabulary_results,
-        'intra_topic_distances': intra_topic_results,
+        'intra_topic_distances': intra_topic_results,  # Legacy format for backward compatibility
+        'topic_distance_results': topic_distance_results,  # New: all 4 configurations
+        'aggregation_size': aggregation_size,  # For report generation
+        'multi_agg_results': multi_agg_results,  # Aggregation stabilization curve data
+        'chi2_results': chi2_results,  # χ²/n word × topic independence test
+        'topic_labels_per_model': topic_labels_per_model,  # Human-readable topic labels
+        'centroid_results': centroid_results,  # Topic centroid distances
+        'full_vocab_jaccard': full_vocab_jaccard,  # Full vocabulary Jaccard per model
+        'cross_model_jaccard': cross_model_jaccard,  # Cross-model full-vocab Jaccard
+        'agg_metadata': agg_metadata,  # Aggregation range metadata
     }
 
     # Generate markdown report
@@ -609,7 +846,67 @@ def main():
                 'n_topics': intra_topic_results.get(f'{model}_js', {}).get('n_topics', 0),
             }
             for model in ['bertopic', 'lda', 'iramuteq']
-        }
+        },
+        # All 4 distance configurations
+        'topic_distances': {
+            model: {
+                config_name: {
+                    'js_mean': topic_distance_results.get(model, {}).get(config_name, {}).get('js', {}).get('mean', 0),
+                    'js_std': topic_distance_results.get(model, {}).get(config_name, {}).get('js', {}).get('std', 0),
+                    'labbe_mean': topic_distance_results.get(model, {}).get(config_name, {}).get('labbe', {}).get('mean', 0),
+                    'labbe_std': topic_distance_results.get(model, {}).get(config_name, {}).get('labbe', {}).get('std', 0),
+                }
+                for config_name in ['intra_all_paired', 'inter_all_paired',
+                                    f'intra_aggregated_{aggregation_size}', f'inter_aggregated_{aggregation_size}']
+            }
+            for model in ['bertopic', 'lda', 'iramuteq']
+        },
+        'aggregation_size': aggregation_size,
+        # Per-topic inter distances (for ranking chart reproducibility)
+        'inter_topic_per_topic': {
+            model: {
+                str(topic_id): stats.get('mean_distance', 0)
+                for topic_id, stats in topic_distance_results.get(model, {})
+                    .get('inter_all_paired', {})
+                    .get('labbe', {})
+                    .get('per_topic', {}).items()
+            }
+            for model in ['bertopic', 'lda', 'iramuteq']
+        },
+        # Multi-aggregation curve data
+        'multi_aggregation': {
+            model: {
+                'aggregation_sizes': sorted(data.keys()),
+                'intra_labbe_means': [
+                    data[agg].get('intra_aggregated', {}).get('labbe', {}).get('mean', 0)
+                    for agg in sorted(data.keys())
+                ],
+                'inter_labbe_means': [
+                    data[agg].get('inter_aggregated', {}).get('labbe', {}).get('mean', 0)
+                    for agg in sorted(data.keys())
+                ],
+            }
+            for model, data in multi_agg_results.items()
+        } if multi_agg_results else {},
+        'agg_metadata': {
+            k: v for k, v in (agg_metadata or {}).items()
+            if k != 'topic_sizes'  # Exclude verbose per-topic sizes
+        },
+        # χ²/n word × topic independence test
+        'chi2_results': {
+            variant: {
+                model: {
+                    'chi2': r.get('chi2', 0),
+                    'n': r.get('n', 0),
+                    'chi2_over_n': r.get('chi2_over_n', 0),
+                    'vocab_size': r.get('vocab_size', 0),
+                    'n_topics': r.get('n_topics', 0),
+                }
+                for model, r in variant_data.items()
+            }
+            for variant, variant_data in chi2_results.items()
+            if variant_data
+        },
     }
 
     metrics_path = output_dir / 'metrics.json'

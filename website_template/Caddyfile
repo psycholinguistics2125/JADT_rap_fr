@@ -1,0 +1,12 @@
+compare-topic-model-jadt2026.fr, www.compare-topic-model-jadt2026.fr {
+    reverse_proxy web:8050
+
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        -Server
+        -Via
+    }
+}

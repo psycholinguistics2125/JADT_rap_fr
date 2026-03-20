@@ -14,6 +14,7 @@ from .latex_helpers import (
     LATEX_END,
     latex_escape,
     latex_safe_number,
+    markdown_to_latex,
     generate_latex_table,
     generate_latex_figure,
 )
@@ -64,86 +65,132 @@ def generate_latex_report(results: dict, output_dir, figures_dir=None,
     # Abstract
     tex += r'\section*{' + latex_escape(t('abstract_title')) + r'}' + '\n'
     tex += r'\addcontentsline{toc}{section}{' + latex_escape(t('abstract_title')) + r'}' + '\n\n'
-    tex += latex_escape(t('abstract_text')) + '\n\n'
+    tex += markdown_to_latex(t('abstract_text')) + '\n\n'
     tex += r'\newpage' + '\n\n'
 
+    # Extract topic labels for use in all section generators
+    topic_labels_per_model = results.get('topic_labels_per_model', {})
+    centroid_results = results.get('centroid_results', {})
+
     # Section 1: Corpus Description
+    tex += r'\clearpage' + '\n'
     tex += r'\section{' + latex_escape(t('corpus_description')) + r'}' + '\n\n'
     tex += _generate_latex_corpus_section(results, figures_dir_path, lang)
 
     # Section 2: Individual Models
+    tex += r'\clearpage' + '\n'
     tex += r'\section{' + latex_escape(t('individual_models')) + r'}' + '\n\n'
-    tex += latex_escape(t('individual_models_intro')) + '\n\n'
+    tex += markdown_to_latex(t('individual_models_intro')) + '\n\n'
 
+    tex += r'\clearpage' + '\n'
     tex += r'\subsection{BERTopic}' + '\n'
     tex += _generate_latex_model_section(results['bertopic'], 'bertopic', figures_dir_path, lang)
 
+    tex += r'\clearpage' + '\n'
     tex += r'\subsection{LDA}' + '\n'
     tex += _generate_latex_model_section(results['lda'], 'lda', figures_dir_path, lang)
 
+    tex += r'\clearpage' + '\n'
     tex += r'\subsection{IRAMUTEQ}' + '\n'
     tex += _generate_latex_model_section(results['iramuteq'], 'iramuteq', figures_dir_path, lang)
 
     # Section 3: Comparative Analysis
+    tex += r'\clearpage' + '\n'
     tex += r'\section{' + latex_escape(t('comparative_analysis')) + r'}' + '\n\n'
     tex += _generate_latex_comparison_section(results, lang)
 
     # Section 4: Intra-topic Distance (Q5)
+    tex += r'\clearpage' + '\n'
     distance_results = results.get('intra_topic_distances', {})
     if distance_results:
         tex += _generate_latex_distance_section(distance_results, lang)
 
-    # Section 5: Summary
-    tex += r'\section{' + latex_escape(t('summary_title').replace('## ', '')) + r'}' + '\n\n'
-    tex += latex_escape(t('key_findings')) + '\n\n'
-    tex += latex_escape(t('interpretation_section')) + '\n\n'
-    tex += latex_escape(t('interpretation_1')) + '\n\n'
-    tex += latex_escape(t('interpretation_2')) + '\n\n'
-    tex += latex_escape(t('recommendations')) + '\n\n'
-    tex += latex_escape(t('rec_semantic')) + '\n'
-    tex += latex_escape(t('rec_lexical')) + '\n\n'
+    # Q5 Extended: All 4 distance configurations (if available)
+    topic_distance_results = results.get('topic_distance_results', {})
+    aggregation_size = results.get('aggregation_size', 20)
+    if topic_distance_results:
+        tex += r'\FloatBarrier' + '\n'
+        tex += _generate_latex_distance_4configs_section(
+            topic_distance_results, aggregation_size, lang)
+
+    # Q5 Feature: Aggregation stabilization curve
+    multi_agg_results = results.get('multi_agg_results', {})
+    if multi_agg_results:
+        tex += r'\FloatBarrier' + '\n'
+        tex += _generate_latex_aggregation_curve_section(
+            multi_agg_results, results.get('agg_metadata'), figures_dir_path, lang)
+
+    # Q5 Feature: Inter-topic separation ranking (uses centroid distances)
+    if centroid_results:
+        tex += r'\FloatBarrier' + '\n'
+        tex += _generate_latex_inter_topic_ranking_section(
+            centroid_results, figures_dir_path, topic_labels_per_model, lang)
+
+    # Q5 Feature: χ²/n word × topic independence test
+    chi2_results = results.get('chi2_results', {})
+    if chi2_results:
+        tex += r'\FloatBarrier' + '\n'
+        tex += _generate_latex_chi2_section(chi2_results, topic_labels_per_model, lang)
+
+    import re as _re
+
+    def _strip_md_heading(s):
+        """Strip markdown heading prefix (### ), numbered (1.) and letter (B.) prefixes from translation strings."""
+        s = _re.sub(r'^#{1,5}\s+', '', s)
+        s = _re.sub(r'^\d+\.\s*', '', s)
+        s = _re.sub(r'^[A-Z]\.\s*', '', s)
+        return s
+
+    # Section 5: Summary — dynamic conclusion from computed results
+    tex += r'\clearpage' + '\n'
+    tex += r'\section{' + latex_escape(_strip_md_heading(t('summary_title'))) + r'}' + '\n\n'
+    # Use the same dynamic conclusion builder as markdown, converted to LaTeX
+    from .markdown_report import _build_dynamic_conclusion
+    conclusion_md = _build_dynamic_conclusion(results, lang)
+    tex += markdown_to_latex(conclusion_md) + '\n\n'
 
     # References (full citations: authors, title, journal)
     def latex_full_ref(key):
         ref = METRIC_REFERENCES[key]
         return latex_escape(f"{ref['citation']}. {ref['paper']}")
 
-    tex += r'\section{' + latex_escape(t('references_title').replace('## ', '')) + r'}' + '\n\n'
-    tex += r'\subsection*{' + latex_escape(t('clustering_agreement_refs')) + r'}' + '\n'
+    tex += r'\section{' + latex_escape(_strip_md_heading(t('references_title'))) + r'}' + '\n\n'
+
+    tex += r'\subsection*{' + latex_escape(_strip_md_heading(t('clustering_agreement_refs'))) + r'}' + '\n'
     tex += r'\begin{itemize}' + '\n'
     tex += r'\item ' + latex_full_ref('ari') + '\n'
     tex += r'\item ' + latex_full_ref('nmi') + '\n'
     tex += r'\item ' + latex_full_ref('ami') + '\n'
     tex += r'\end{itemize}' + '\n\n'
 
-    tex += r'\subsection*{' + latex_escape(t('association_measures_refs')) + r'}' + '\n'
+    tex += r'\subsection*{' + latex_escape(_strip_md_heading(t('association_measures_refs'))) + r'}' + '\n'
     tex += r'\begin{itemize}' + '\n'
     tex += r'\item ' + latex_full_ref('cramers_v') + '\n'
     tex += r'\end{itemize}' + '\n\n'
 
-    tex += r'\subsection*{' + latex_escape(t('info_theory_refs')) + r'}' + '\n'
+    tex += r'\subsection*{' + latex_escape(_strip_md_heading(t('info_theory_refs'))) + r'}' + '\n'
     tex += r'\begin{itemize}' + '\n'
     tex += r'\item ' + latex_full_ref('js_divergence') + '\n'
     tex += r'\end{itemize}' + '\n\n'
 
-    tex += r'\subsection*{' + latex_escape(t('intertextual_refs')) + r'}' + '\n'
+    tex += r'\subsection*{' + latex_escape(_strip_md_heading(t('intertextual_refs'))) + r'}' + '\n'
     tex += r'\begin{itemize}' + '\n'
     tex += r'\item ' + latex_full_ref('labbe_distance') + '\n'
     for extra in METRIC_REFERENCES['labbe_distance'].get('additional_refs', []):
         tex += r'\item ' + latex_escape(extra) + '\n'
     tex += r'\end{itemize}' + '\n\n'
 
-    tex += r'\subsection*{' + latex_escape(t('topic_coherence_refs')) + r'}' + '\n'
+    tex += r'\subsection*{' + latex_escape(_strip_md_heading(t('topic_coherence_refs'))) + r'}' + '\n'
     tex += r'\begin{itemize}' + '\n'
     tex += r'\item ' + latex_full_ref('coherence_cv') + '\n'
     tex += r'\end{itemize}' + '\n\n'
 
-    tex += r'\subsection*{' + latex_escape(t('cluster_validation_refs')) + r'}' + '\n'
+    tex += r'\subsection*{' + latex_escape(_strip_md_heading(t('cluster_validation_refs'))) + r'}' + '\n'
     tex += r'\begin{itemize}' + '\n'
     tex += r'\item ' + latex_full_ref('silhouette') + '\n'
     tex += r'\end{itemize}' + '\n\n'
 
-    tex += r'\subsection*{' + latex_escape(t('topic_modeling_refs')) + r'}' + '\n'
+    tex += r'\subsection*{' + latex_escape(_strip_md_heading(t('topic_modeling_refs'))) + r'}' + '\n'
     tex += r'\begin{itemize}' + '\n'
     tex += r'\item ' + latex_escape('Grootendorst, M. (2022). BERTopic: Neural topic modeling with a class-based TF-IDF procedure. arXiv preprint arXiv:2203.05794.') + '\n'
     tex += r'\item ' + latex_escape('Blei, D. M., Ng, A. Y., & Jordan, M. I. (2003). Latent Dirichlet Allocation. Journal of Machine Learning Research, 3, 993-1022.') + '\n'
@@ -152,7 +199,8 @@ def generate_latex_report(results: dict, output_dir, figures_dir=None,
 
     # Appendix with distance formulas
     tex += r'\appendix' + '\n'
-    tex += r'\section{' + latex_escape(t('appendix_distance_title')) + r'}' + '\n\n'
+    appendix_title = _re.sub(r'^[A-Z]\.\s*', '', _strip_md_heading(t('appendix_distance_title')))
+    tex += r'\section{' + latex_escape(appendix_title) + r'}' + '\n\n'
     tex += _generate_latex_distance_appendix(lang)
 
     # End document
@@ -185,7 +233,7 @@ def _generate_latex_corpus_section(results: dict, figures_dir: Path, lang: str) 
     max_artist = latex_escape(artist_counts.idxmax())
     max_count = artist_counts.max()
 
-    tex = latex_escape(t('corpus_intro')) + '\n\n'
+    tex = markdown_to_latex(t('corpus_intro')) + '\n\n'
 
     # Dataset overview table
     tex += r'\subsection{' + latex_escape(t('dataset_overview')) + r'}' + '\n\n'
@@ -205,7 +253,8 @@ def _generate_latex_corpus_section(results: dict, figures_dir: Path, lang: str) 
     # Include figures if they exist
     corpus_fig = figures_dir / 'corpus_year_distribution.png'
     if corpus_fig.exists():
-        tex += generate_latex_figure(str(corpus_fig), caption=t('fig_year_dist'), label='fig:year_dist')
+        caption = t('fig_year_dist').strip('*').replace('*', '')
+        tex += generate_latex_figure(str(corpus_fig), caption=caption, label='fig:year_dist')
 
     return tex
 
@@ -222,11 +271,11 @@ def _generate_latex_model_section(run_data: dict, model_type: str, figures_dir: 
 
     # Model description
     if model_type == 'bertopic':
-        tex += latex_escape(t('bertopic_desc')) + '\n\n'
+        tex += markdown_to_latex(t('bertopic_desc')) + '\n\n'
     elif model_type == 'lda':
-        tex += latex_escape(t('lda_desc')) + '\n\n'
+        tex += markdown_to_latex(t('lda_desc')) + '\n\n'
     elif model_type == 'iramuteq':
-        tex += latex_escape(t('iramuteq_desc')) + '\n\n'
+        tex += markdown_to_latex(t('iramuteq_desc')) + '\n\n'
 
     # Parameters table
     params = metrics.get('parameters', {})
@@ -308,9 +357,10 @@ def _generate_latex_model_section(run_data: dict, model_type: str, figures_dir: 
     ]:
         fig_path = figures_dir / f'{fig_prefix}_{fig_name}'
         if fig_path.exists():
-            tex += generate_latex_figure(str(fig_path), caption=t(fig_caption_key))
+            # Strip *italic* markers from caption text before passing to generate_latex_figure
+            caption = t(fig_caption_key).strip('*').replace('*', '')
+            tex += generate_latex_figure(str(fig_path), caption=caption)
 
-    tex += r'\newpage' + '\n\n'
     return tex
 
 
@@ -344,13 +394,20 @@ def _get_entropy_interp(entropy, t) -> str:
 
 def _generate_latex_comparison_section(results: dict, lang: str) -> str:
     """Generate LaTeX content for comparative analysis section."""
+    import re as _re
     t = lambda key: get_text(key, lang)
+
+    def _strip_md_heading(s):
+        return _re.sub(r'^#{1,5}\s+', '', s)
+
     tex = ''
 
+    # =========================================================================
     # Q1: Model Agreement
-    tex += r'\subsection{' + latex_escape(t('q1_title').replace('### ', '')) + r'}' + '\n\n'
-    tex += latex_escape(t('q1_research')) + '\n\n'
-    tex += latex_escape(t('q1_method_intro')) + '\n\n'
+    # =========================================================================
+    tex += r'\subsection{' + latex_escape(_strip_md_heading(t('q1_title'))) + r'}' + '\n\n'
+    tex += markdown_to_latex(t('q1_research')) + '\n\n'
+    tex += markdown_to_latex(t('q1_method_intro')) + '\n\n'
 
     # ARI formula
     tex += r'\textbf{Adjusted Rand Index (ARI)}' + '\n\n'
@@ -377,9 +434,12 @@ where $I(U; V) = \sum_{i,j} P(i,j) \log \frac{P(i,j)}{P(i)P(j)}$ is the mutual i
     # Agreement results table
     agreement = results.get('agreement', {})
     if agreement:
-        tex += latex_escape(t('q1_results')) + '\n\n'
+        tex += markdown_to_latex(t('q1_results')) + '\n\n'
         headers = [t('pair'), 'ARI', 'NMI', t('interpretation')]
         rows = []
+        best_pair, best_nmi = None, -1
+        worst_pair, worst_nmi = None, 2
+
         for pair_name, value in agreement.items():
             if isinstance(value, dict):
                 if 'agreement' in value:
@@ -391,6 +451,13 @@ where $I(U; V) = \sum_{i,j} P(i,j) \log \frac{P(i,j)}{P(i)P(j)}$ is the mutual i
             else:
                 ari = 0
                 nmi = float(value) if value is not None else 0
+
+            if nmi > best_nmi:
+                best_nmi = nmi
+                best_pair = pair_name
+            if nmi < worst_nmi:
+                worst_nmi = nmi
+                worst_pair = pair_name
 
             if nmi > 0.5:
                 interp = t('strong_agreement')
@@ -405,9 +472,20 @@ where $I(U; V) = \sum_{i,j} P(i,j) \log \frac{P(i,j)}{P(i)P(j)}$ is the mutual i
 
         tex += generate_latex_table(headers, rows, caption='Model Agreement Metrics')
 
+        # Key observations for Q1
+        tex += markdown_to_latex(t('key_observations')) + '\n\n'
+        tex += r'\begin{enumerate}' + '\n'
+        tex += r'\item ' + markdown_to_latex(t('q1_obs1').format(pair=best_pair, nmi=best_nmi)) + '\n'
+        tex += r'\item ' + markdown_to_latex(t('q1_obs2').format(pair=worst_pair, nmi=worst_nmi)) + '\n'
+        tex += r'\item ' + markdown_to_latex(t('q1_obs3')) + '\n'
+        tex += r'\end{enumerate}' + '\n\n'
+
+    # =========================================================================
     # Q2: Artist Separation
-    tex += r'\subsection{' + latex_escape(t('q2_title').replace('### ', '')) + r'}' + '\n\n'
-    tex += latex_escape(t('q2_research')) + '\n\n'
+    # =========================================================================
+    tex += r'\subsection{' + latex_escape(_strip_md_heading(t('q2_title'))) + r'}' + '\n\n'
+    tex += markdown_to_latex(t('q2_research')) + '\n\n'
+    tex += markdown_to_latex(t('q2_method_intro')) + '\n\n'
 
     # Cramér's V formula
     tex += r'''\textbf{Cram\'er's V}
@@ -423,9 +501,11 @@ where $\chi^2$ is the chi-squared statistic, $n$ is sample size, $k$ and $r$ are
 
     artist_sep = results.get('artist_separation', {})
     if artist_sep:
-        tex += latex_escape(t('q2_results')) + '\n\n'
-        headers = [t('model'), r"Cram\'er's V", t('interpretation')]
+        tex += markdown_to_latex(t('q2_results')) + '\n\n'
+        headers = [t('model'), "Cramér's V", t('interpretation')]
         rows = []
+        best_model, best_v = None, -1
+
         for model in ['bertopic', 'lda', 'iramuteq']:
             v = artist_sep.get(f'{model}_cramers_v')
             if v is None:
@@ -435,6 +515,10 @@ where $\chi^2$ is the chi-squared statistic, $n$ is sample size, $k$ and $r$ are
                 else:
                     v = 0
             v = float(v) if v is not None else 0
+
+            if v > best_v:
+                best_v = v
+                best_model = model
 
             if v > 0.3:
                 interp = t('strong_association')
@@ -449,26 +533,132 @@ where $\chi^2$ is the chi-squared statistic, $n$ is sample size, $k$ and $r$ are
 
         tex += generate_latex_table(headers, rows, caption='Artist-Topic Association')
 
-    # Q3: Temporal Dynamics
-    tex += r'\subsection{' + latex_escape(t('q3_title').replace('### ', '')) + r'}' + '\n\n'
-    tex += latex_escape(t('q3_research')) + '\n\n'
-    tex += latex_escape(t('q3_method_intro')) + '\n\n'
+        # Key observations for Q2
+        if best_model:
+            tex += markdown_to_latex(t('key_observations')) + '\n\n'
+            tex += r'\begin{enumerate}' + '\n'
+            tex += r'\item ' + markdown_to_latex(t('q2_obs1').format(model=best_model.upper(), v=best_v)) + '\n'
+            tex += r'\item ' + markdown_to_latex(t('q2_obs2')) + '\n'
+            tex += r'\item ' + markdown_to_latex(t('q2_obs3')) + '\n'
+            tex += r'\end{enumerate}' + '\n\n'
 
-    # Q4: Vocabulary
-    tex += r'\subsection{' + latex_escape(t('q4_title').replace('### ', '')) + r'}' + '\n\n'
-    tex += latex_escape(t('q4_research')) + '\n\n'
-    tex += latex_escape(t('q4_method_intro')) + '\n\n'
+    # =========================================================================
+    # Q3: Temporal Dynamics
+    # =========================================================================
+    tex += r'\subsection{' + latex_escape(_strip_md_heading(t('q3_title'))) + r'}' + '\n\n'
+    tex += markdown_to_latex(t('q3_research')) + '\n\n'
+    tex += markdown_to_latex(t('q3_method_intro')) + '\n\n'
+    tex += markdown_to_latex(t('temporal_variance_desc')) + '\n\n'
+    tex += markdown_to_latex(t('q3_results')) + '\n\n'
+
+    temporal = results.get('temporal', {})
+    if temporal:
+        headers = [t('model'), t('temporal_variance'), t('most_variable_topic'),
+                   t('max_variance'), t('interpretation')]
+        rows = []
+        best_model, best_var = None, -1
+
+        for model in ['bertopic', 'lda', 'iramuteq']:
+            mean_var = temporal.get(f'{model}_mean_variance', 0)
+            most_var_topic = temporal.get(f'{model}_most_variable_topic', '-')
+            max_var = temporal.get(f'{model}_max_variance', 0)
+
+            if mean_var > best_var:
+                best_var = mean_var
+                best_model = model
+
+            if mean_var > 0.01:
+                interp = t('high_dynamics')
+            elif mean_var > 0.001:
+                interp = t('moderate_dynamics')
+            else:
+                interp = t('stable')
+
+            rows.append([model.upper(), f'{mean_var:.6f}',
+                         latex_escape(str(most_var_topic)), f'{max_var:.6f}',
+                         latex_escape(interp)])
+
+        tex += generate_latex_table(headers, rows, caption='Temporal Dynamics')
+
+        # Key observations for Q3
+        if best_model:
+            tex += markdown_to_latex(t('key_observations')) + '\n\n'
+            tex += r'\begin{enumerate}' + '\n'
+            tex += r'\item ' + markdown_to_latex(t('q3_obs1').format(model=best_model.upper())) + '\n'
+            tex += r'\item ' + markdown_to_latex(t('q3_obs2')) + '\n'
+            tex += r'\item ' + markdown_to_latex(t('q3_obs3')) + '\n'
+            tex += r'\end{enumerate}' + '\n\n'
+
+    # =========================================================================
+    # Q4: Vocabulary Distinctiveness
+    # =========================================================================
+    tex += r'\subsection{' + latex_escape(_strip_md_heading(t('q4_title'))) + r'}' + '\n\n'
+    tex += markdown_to_latex(t('q4_research')) + '\n\n'
+    tex += markdown_to_latex(t('q4_method_intro')) + '\n\n'
+    tex += markdown_to_latex(t('jaccard_desc')) + '\n\n'
+    tex += markdown_to_latex(t('distinctiveness_desc')) + '\n\n'
+    tex += markdown_to_latex(t('q4_results')) + '\n\n'
+
+    vocabulary = results.get('vocabulary', {})
+    if vocabulary:
+        headers = [t('model'), t('mean_jaccard_distance'), t('interpretation')]
+        rows = []
+        for model in ['bertopic', 'lda', 'iramuteq']:
+            dist = vocabulary.get(f'{model}_distinctiveness', 0)
+
+            if dist > 0.9:
+                interp = t('highly_distinct')
+            elif dist > 0.7:
+                interp = t('distinct')
+            elif dist > 0.5:
+                interp = t('moderate_overlap')
+            else:
+                interp = t('significant_overlap')
+
+            rows.append([model.upper(), f'{dist:.4f}', latex_escape(interp)])
+
+        tex += generate_latex_table(headers, rows, caption='Vocabulary Distinctiveness')
+
+        # Key observations for Q4
+        tex += markdown_to_latex(t('key_observations')) + '\n\n'
+        tex += r'\begin{enumerate}' + '\n'
+        tex += r'\item ' + markdown_to_latex(t('q4_obs1')) + '\n'
+        tex += r'\item ' + markdown_to_latex(t('q4_obs2')) + '\n'
+        tex += r'\end{enumerate}' + '\n\n'
+
+        # Cross-model full vocabulary Jaccard at multiple thresholds
+        cross_model_jaccard = results.get('cross_model_jaccard', {})
+        cross_bl = cross_model_jaccard.get('bertopic_vs_lda', {})
+        per_threshold = cross_bl.get('per_threshold', {})
+        if per_threshold:
+            tex += r'\subsubsection{' + latex_escape(_strip_md_heading(t('cross_model_full_jaccard_title'))) + r'}' + '\n\n'
+            tex += markdown_to_latex(t('cross_model_full_jaccard_intro')) + '\n\n'
+            if lang == 'fr':
+                caption_text = 'Jaccard vocabulaire complet (BERTopic vs LDA par seuil de fréquence)'
+                h = ['Seuil min.', 'Jaccard moyen', 'Paires']
+            else:
+                caption_text = 'Full vocabulary Jaccard (BERTopic vs LDA by frequency threshold)'
+                h = ['Min freq.', 'Mean Jaccard', 'Pairs']
+            r_rows = []
+            for thresh in sorted(per_threshold.keys()):
+                data = per_threshold[thresh]
+                r_rows.append([str(thresh), f"{data['mean_jaccard']:.4f}", str(data['n_pairs'])])
+            tex += generate_latex_table(h, r_rows, caption=caption_text)
 
     return tex
 
 
 def _generate_latex_distance_section(distance_results: dict, lang: str) -> str:
     """Generate LaTeX content for intra-topic distance analysis (Q5)."""
+    import re as _re
     t = lambda key: get_text(key, lang)
 
-    tex = r'\subsection{' + latex_escape(t('q5_title').replace('### ', '')) + r'}' + '\n\n'
-    tex += latex_escape(t('q5_research')) + '\n\n'
-    tex += latex_escape(t('q5_intro')) + '\n\n'
+    def _strip_md_heading(s):
+        return _re.sub(r'^#{1,5}\s+', '', s)
+
+    tex = r'\subsection{' + latex_escape(_strip_md_heading(t('q5_title'))) + r'}' + '\n\n'
+    tex += markdown_to_latex(t('q5_research')) + '\n\n'
+    tex += markdown_to_latex(t('q5_intro')) + '\n\n'
 
     # Jensen-Shannon formula
     tex += r'''\textbf{Jensen-Shannon Divergence}
@@ -498,7 +688,7 @@ where $f_i(X)$ is the relative frequency of word $i$ in text $X$, and $V$ is the
 '''
 
     # Results tables
-    tex += latex_escape(t('q5_results')) + '\n\n'
+    tex += markdown_to_latex(t('q5_results')) + '\n\n'
 
     # Jensen-Shannon table
     tex += r'\textbf{Jensen-Shannon Distances}' + '\n\n'
@@ -544,6 +734,259 @@ where $f_i(X)$ is the relative frequency of word $i$ in text $X$, and $V$ is the
         rows.append([model.upper(), f'{mean_dist:.4f}', f'{std_dist:.4f}', str(n_topics), latex_escape(interp)])
 
     tex += generate_latex_table(headers, rows, caption='Labbé Intra-topic Distances')
+
+    return tex
+
+
+def _generate_latex_distance_4configs_section(
+    topic_distance_results: dict,
+    aggregation_size: int,
+    lang: str
+) -> str:
+    """Generate LaTeX section for all 4 distance configurations (Q5 extended)."""
+    import re as _re
+    t = lambda key: get_text(key, lang)
+
+    def _strip_md_heading(s):
+        return _re.sub(r'^#{1,5}\s+', '', s)
+
+    tex = r'\subsubsection{' + latex_escape(_strip_md_heading(t('q5_4configs_title'))) + r'}' + '\n\n'
+    tex += markdown_to_latex(t('q5_4configs_intro')) + '\n\n'
+
+    # Configuration explanation table
+    headers = [t('config_table_header'), t('what_it_measures'), t('interpretation_guide')]
+    rows = [
+        [r'\textbf{' + latex_escape(t('config_intra_all_paired')) + r'}',
+         latex_escape(t('homogeneity')), latex_escape(t('lower_better'))],
+        [r'\textbf{' + latex_escape(t('config_inter_all_paired')) + r'}',
+         latex_escape(t('separation')), latex_escape(t('higher_better'))],
+        [r'\textbf{' + latex_escape(t('config_intra_aggregated')) + r'}' + f' (n={aggregation_size})',
+         latex_escape(t('homogeneity')), latex_escape(t('lower_better'))],
+        [r'\textbf{' + latex_escape(t('config_inter_aggregated')) + r'}' + f' (n={aggregation_size})',
+         latex_escape(t('separation')), latex_escape(t('higher_better'))],
+    ]
+    tex += generate_latex_table(headers, rows, caption='Distance Configurations')
+    tex += markdown_to_latex(t('aggregation_note').format(n=aggregation_size)) + '\n\n'
+
+    # Build config list
+    configs = [
+        ('intra_all_paired', t('config_intra_all_paired'),
+         t('config_intra_all_paired_desc'), 'homogeneity'),
+        ('inter_all_paired', t('config_inter_all_paired'),
+         t('config_inter_all_paired_desc'), 'separation'),
+        (f'intra_aggregated_{aggregation_size}',
+         t('config_intra_aggregated') + f' (n={aggregation_size})',
+         t('config_intra_aggregated_desc'), 'homogeneity'),
+        (f'inter_aggregated_{aggregation_size}',
+         t('config_inter_aggregated') + f' (n={aggregation_size})',
+         t('config_inter_aggregated_desc'), 'separation'),
+    ]
+
+    # Per-config results tables
+    for config_key, config_label, config_desc, config_type in configs:
+        tex += r'\textbf{' + latex_escape(config_label) + r'}' + '\n\n'
+        tex += r'\textit{' + markdown_to_latex(config_desc).replace(r'\textbf{', r'\textbf{') + r'}' + '\n\n'
+
+        headers = [t('model'), 'JS', r"Labb\'e"]
+        rows = []
+        for model in ['bertopic', 'lda', 'iramuteq']:
+            model_results = topic_distance_results.get(model, {})
+            config_results = model_results.get(config_key, {})
+            js_mean = config_results.get('js', {}).get('mean', 0)
+            labbe_mean = config_results.get('labbe', {}).get('mean', 0)
+            rows.append([model.upper(), f'{js_mean:.4f}', f'{labbe_mean:.4f}'])
+
+        tex += generate_latex_table(headers, rows, caption=config_label)
+
+    # Summary: best models
+    tex += markdown_to_latex(t('q5_summary_4configs')) + '\n\n'
+
+    best_homo_js = best_homo_labbe = best_sep_js = best_sep_labbe = None
+    best_homo_js_val = best_homo_labbe_val = float('inf')
+    best_sep_js_val = best_sep_labbe_val = 0
+
+    for model in ['bertopic', 'lda', 'iramuteq']:
+        model_results = topic_distance_results.get(model, {})
+        intra = model_results.get('intra_all_paired', {})
+        inter = model_results.get('inter_all_paired', {})
+
+        js_intra = intra.get('js', {}).get('mean', float('inf'))
+        labbe_intra = intra.get('labbe', {}).get('mean', float('inf'))
+        js_inter = inter.get('js', {}).get('mean', 0)
+        labbe_inter = inter.get('labbe', {}).get('mean', 0)
+
+        if js_intra < best_homo_js_val:
+            best_homo_js_val = js_intra
+            best_homo_js = model
+        if labbe_intra < best_homo_labbe_val:
+            best_homo_labbe_val = labbe_intra
+            best_homo_labbe = model
+        if js_inter > best_sep_js_val:
+            best_sep_js_val = js_inter
+            best_sep_js = model
+        if labbe_inter > best_sep_labbe_val:
+            best_sep_labbe_val = labbe_inter
+            best_sep_labbe = model
+
+    tex += r'\begin{itemize}' + '\n'
+    if best_homo_js:
+        tex += r'\item \textbf{' + latex_escape(t('q5_best_homogeneity')) + r' (JS):} '
+        tex += f'{best_homo_js.upper()} ({best_homo_js_val:.4f})\n'
+    if best_homo_labbe:
+        tex += r"\item \textbf{" + latex_escape(t('q5_best_homogeneity')) + r" (Labb\'e):} "
+        tex += f'{best_homo_labbe.upper()} ({best_homo_labbe_val:.4f})\n'
+    if best_sep_js:
+        tex += r'\item \textbf{' + latex_escape(t('q5_best_separation')) + r' (JS):} '
+        tex += f'{best_sep_js.upper()} ({best_sep_js_val:.4f})\n'
+    if best_sep_labbe:
+        tex += r"\item \textbf{" + latex_escape(t('q5_best_separation')) + r" (Labb\'e):} "
+        tex += f'{best_sep_labbe.upper()} ({best_sep_labbe_val:.4f})\n'
+    tex += r'\end{itemize}' + '\n\n'
+
+    return tex
+
+
+def _generate_latex_aggregation_curve_section(
+    multi_agg_results: dict,
+    agg_metadata: dict,
+    figures_dir: str,
+    lang: str
+) -> str:
+    """Generate LaTeX section for aggregation stabilization curve."""
+    import re as _re
+    t = lambda key: get_text(key, lang)
+
+    def _strip_md(s):
+        return _re.sub(r'^#{1,5}\s+', '', s).replace('**', '').replace('*', '')
+
+    tex = r'\subsubsection{' + latex_escape(_strip_md(t('q5_agg_curve_title'))) + r'}' + '\n\n'
+    tex += markdown_to_latex(t('q5_agg_curve_intro')) + '\n\n'
+
+    if agg_metadata:
+        range_text = t('q5_agg_curve_range').format(
+            min_agg=agg_metadata.get('agg_min', '?'),
+            max_agg=agg_metadata.get('agg_max', '?'),
+            min_words=agg_metadata.get('min_words_per_unit', 1000),
+            min_units=agg_metadata.get('min_units_per_topic', 10),
+            min_topic_size=agg_metadata.get('min_topic_size', '?'),
+            n_points=agg_metadata.get('n_points', '?'),
+        )
+        tex += markdown_to_latex(range_text) + '\n\n'
+
+    # Figure
+    fig_path = Path(figures_dir) / 'aggregation_curve.png'
+    if fig_path.exists():
+        tex += generate_latex_figure(
+            str(fig_path),
+            _strip_md(t('q5_agg_curve_fig_caption')),
+            width=0.95
+        )
+
+    return tex
+
+
+def _generate_latex_inter_topic_ranking_section(
+    centroid_results: dict,
+    figures_dir: str,
+    topic_labels_per_model: dict,
+    lang: str
+) -> str:
+    """Generate LaTeX section for inter-topic separation ranking (centroid distances)."""
+    import re as _re
+    t = lambda key: get_text(key, lang)
+
+    def _strip_md(s):
+        return _re.sub(r'^#{1,5}\s+', '', s).replace('**', '').replace('*', '')
+
+    tex = r'\subsubsection{' + latex_escape(_strip_md(t('q5_inter_ranking_title'))) + r'}' + '\n\n'
+    tex += markdown_to_latex(t('q5_inter_ranking_intro')) + '\n\n'
+
+    for model in ['bertopic', 'lda', 'iramuteq']:
+        centroid_data = centroid_results.get(model, {})
+        labbe_per_topic = centroid_data.get('labbe', {}).get('per_topic', {})
+
+        if not labbe_per_topic:
+            continue
+
+        js_per_topic = centroid_data.get('js', {}).get('per_topic', {})
+        labels = topic_labels_per_model.get(model, {})
+
+        def _label(tid):
+            return labels.get(str(tid), labels.get(tid, f"Topic {tid}"))
+
+        # Figure
+        fig_path = Path(figures_dir) / f'inter_topic_ranking_{model}.png'
+        if fig_path.exists():
+            caption = _strip_md(t('q5_inter_ranking_fig_caption').format(model=model.upper()))
+            tex += generate_latex_figure(str(fig_path), caption, width=0.95)
+
+        # Summary table: top 3 most/least distinct
+        sorted_topics = sorted(
+            labbe_per_topic.items(),
+            key=lambda x: x[1].get('mean_distance', 0),
+            reverse=True
+        )
+        n_show = min(3, len(sorted_topics))
+
+        # Most distinct
+        tex += markdown_to_latex(t('q5_inter_ranking_most_distinct')) + '\n\n'
+        headers = ['Topic', latex_escape(_strip_md(t('mean_labbe_distance'))),
+                    latex_escape(_strip_md(t('mean_js_inter_distance')))]
+        rows = []
+        for tid, stats in sorted_topics[:n_show]:
+            labbe_val = stats.get('mean_distance', 0)
+            js_val = js_per_topic.get(tid, {}).get('mean_distance', 0)
+            rows.append([latex_escape(_label(tid)), f'{labbe_val:.4f}', f'{js_val:.4f}'])
+        tex += generate_latex_table(headers, rows, col_widths=['5cm', None, None])
+
+        # Least distinct
+        tex += markdown_to_latex(t('q5_inter_ranking_least_distinct')) + '\n\n'
+        rows = []
+        for tid, stats in sorted_topics[-n_show:]:
+            labbe_val = stats.get('mean_distance', 0)
+            js_val = js_per_topic.get(tid, {}).get('mean_distance', 0)
+            rows.append([latex_escape(_label(tid)), f'{labbe_val:.4f}', f'{js_val:.4f}'])
+        tex += generate_latex_table(headers, rows, col_widths=['5cm', None, None])
+
+    return tex
+
+
+def _generate_latex_chi2_section(chi2_results: dict, topic_labels_per_model: dict,
+                                 lang: str) -> str:
+    """Generate LaTeX section for χ²/n word × topic independence test."""
+    import re as _re
+    t = lambda key: get_text(key, lang)
+
+    def _strip_md(s):
+        return _re.sub(r'^#{1,5}\s+', '', s).replace('**', '').replace('*', '')
+
+    tex = r'\subsubsection{' + latex_escape(_strip_md(t('q5_chi2_title'))) + r'}' + '\n\n'
+    tex += markdown_to_latex(t('q5_chi2_intro')) + '\n\n'
+    tex += markdown_to_latex(t('q5_chi2_explanation')) + '\n\n'
+
+    for variant_key in ['non_lemmatized', 'lemmatized']:
+        variant_data = chi2_results.get(variant_key, {})
+        if not variant_data:
+            continue
+
+        tex += r'\textbf{' + latex_escape(t(variant_key)) + r'}' + '\n\n'
+
+        # Global table
+        headers = ['Model', r'$\chi^2$', latex_escape(t('total_tokens_label')),
+                    r'$\chi^2/n$', latex_escape(t('vocab_size_label'))]
+        rows = []
+        for model in ['bertopic', 'lda', 'iramuteq']:
+            r = variant_data.get(model, {})
+            if not r:
+                continue
+            rows.append([
+                model.upper(),
+                f"{r.get('chi2', 0):,.0f}",
+                f"{r.get('n', 0):,}",
+                f"{r.get('chi2_over_n', 0):.4f}",
+                f"{r.get('vocab_size', 0):,}",
+            ])
+        tex += generate_latex_table(headers, rows)
 
     return tex
 

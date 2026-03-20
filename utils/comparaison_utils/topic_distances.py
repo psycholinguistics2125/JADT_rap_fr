@@ -13,11 +13,11 @@ Classes:
 - BaseDistance: Abstract base class for distance metrics
 - LabbeDistance: Labbé intertextual distance (relative frequencies)
 - JensenShannonDistance: Jensen-Shannon divergence (distributional)
-- WMDDistance: Word Mover's Distance stub (to be implemented with FastText)
 
 Functions:
 ----------
-- evaluate_topic_coherence: Compute mean intra-topic distance for all topics
+- evaluate_topic_distances: Comprehensive topic distance evaluation (4 modes)
+- aggregate_documents: Merge multiple documents into larger units
 
 References:
 -----------
@@ -25,469 +25,16 @@ References:
   Journal of Quantitative Linguistics, 8(3), 213-231.
 - Lin, J. (1991). Divergence measures based on the Shannon entropy.
   IEEE Transactions on Information Theory, 37(1), 145-151.
-- Lu, Y., et al. (2020). Topic modeling for text analysis. In Encyclopedia of
-  Big Data Technologies.
-- Blei, D. M., Ng, A. Y., & Jordan, M. I. (2003). Latent Dirichlet allocation.
-  Journal of Machine Learning Research, 3, 993-1022.
 """
 
 from abc import ABC, abstractmethod
 from collections import Counter
-from typing import Dict, List, Optional, Tuple, Union, Callable
+from typing import Dict, List, Optional, Tuple, Callable
 import random
 import itertools
 
 import numpy as np
 from scipy.spatial.distance import jensenshannon
-
-
-# =============================================================================
-# SPACY TOKENIZER FOR EFFICIENT BATCH PROCESSING
-# =============================================================================
-
-class SpaCyTokenizer:
-    """
-    SpaCy-based tokenizer optimized for batch processing.
-
-    Uses spaCy's pipe() method for efficient parallel tokenization of large
-    document collections. Disables unnecessary pipeline components for speed.
-
-    Parameters
-    ----------
-    model_name : str, default='fr_core_news_lg'
-        SpaCy model to use. Options:
-        - 'fr_core_news_sm': Small, fast (12MB)
-        - 'fr_core_news_md': Medium, balanced (44MB)
-        - 'fr_core_news_lg': Large, accurate (540MB) - recommended
-    lowercase : bool, default=True
-        Convert tokens to lowercase.
-    min_word_length : int, default=2
-        Minimum token length to keep.
-    remove_stopwords : bool, default=True
-        Remove French stopwords.
-    lemmatize : bool, default=False
-        Use lemmas instead of surface forms.
-    batch_size : int, default=1000
-        Batch size for spaCy's pipe() method.
-    n_process : int, default=-1
-        Number of processes for parallel processing.
-        -1 uses all available CPUs.
-
-    Examples
-    --------
-    >>> tokenizer = SpaCyTokenizer(model_name='fr_core_news_lg')
-    >>> documents = ["Le chat dort sur le canapé", "Les chiens jouent dehors"]
-    >>> token_counts = tokenizer.batch_tokenize(documents)
-    >>> token_counts[0]
-    ['chat', 'dort', 'canapé']
-    """
-
-    def __init__(
-        self,
-        model_name: str = 'fr_core_news_lg',
-        lowercase: bool = True,
-        min_word_length: int = 2,
-        remove_stopwords: bool = True,
-        lemmatize: bool = False,
-        batch_size: int = 1000,
-        n_process: int = -1
-    ):
-        self.model_name = model_name
-        self.lowercase = lowercase
-        self.min_word_length = min_word_length
-        self.remove_stopwords = remove_stopwords
-        self.lemmatize = lemmatize
-        self.batch_size = batch_size
-        self.n_process = n_process
-        self._nlp = None
-        self._stopwords = None
-
-    def _load_model(self):
-        """Lazy load spaCy model with optimized settings."""
-        if self._nlp is None:
-            import spacy
-
-            # Disable components we don't need for tokenization
-            # Keep: tok2vec, tagger (for lemma/POS), morphologizer
-            # Disable: parser, ner, textcat, etc.
-            disable_components = ['parser', 'ner', 'textcat', 'custom']
-
-            try:
-                self._nlp = spacy.load(
-                    self.model_name,
-                    disable=disable_components
-                )
-                print(f"  Loaded spaCy model: {self.model_name}")
-            except OSError:
-                # Fallback to small model if large not available
-                fallback = 'fr_core_news_sm'
-                print(f"  Warning: {self.model_name} not found, using {fallback}")
-                self._nlp = spacy.load(fallback, disable=disable_components)
-
-            # Load stopwords
-            if self.remove_stopwords:
-                self._stopwords = self._nlp.Defaults.stop_words
-                # Add common French filler words in rap
-                self._stopwords.update({
-                    'ouais', 'wesh', 'han', 'hein', 'euh', 'bah', 'ben',
-                    'genre', 'style', 'truc', 'machin', 'nan', 'yo', 'hey'
-                })
-
-    def _process_token(self, token) -> Optional[str]:
-        """Process a single spaCy token, returning cleaned form or None."""
-        # Skip punctuation, spaces, numbers
-        if token.is_punct or token.is_space or token.like_num:
-            return None
-
-        # Get token text (lemma or surface form)
-        if self.lemmatize and token.lemma_:
-            text = token.lemma_
-        else:
-            text = token.text
-
-        # Lowercase
-        if self.lowercase:
-            text = text.lower()
-
-        # Length filter
-        if len(text) < self.min_word_length:
-            return None
-
-        # Stopword filter
-        if self.remove_stopwords and text in self._stopwords:
-            return None
-
-        # Skip tokens that are purely non-alphabetic
-        if not any(c.isalpha() for c in text):
-            return None
-
-        return text
-
-    def tokenize(self, text: str) -> List[str]:
-        """
-        Tokenize a single document.
-
-        Parameters
-        ----------
-        text : str
-            Document text.
-
-        Returns
-        -------
-        List[str]
-            List of filtered tokens.
-        """
-        self._load_model()
-
-        if not text or not isinstance(text, str):
-            return []
-
-        doc = self._nlp(text)
-        tokens = []
-        for token in doc:
-            processed = self._process_token(token)
-            if processed:
-                tokens.append(processed)
-
-        return tokens
-
-    def get_counts(self, text: str) -> Counter:
-        """
-        Get token counts for a single document.
-
-        Parameters
-        ----------
-        text : str
-            Document text.
-
-        Returns
-        -------
-        Counter
-            Token frequency counts.
-        """
-        return Counter(self.tokenize(text))
-
-    def batch_tokenize(
-        self,
-        documents: List[str],
-        verbose: bool = True
-    ) -> List[List[str]]:
-        """
-        Batch tokenize documents using spaCy's pipe() for efficiency.
-
-        This method is optimized for processing large document collections
-        by using spaCy's parallel processing capabilities. Returns lists
-        of tokens that can be reused for different distance computations.
-
-        Parameters
-        ----------
-        documents : List[str]
-            List of document texts.
-        verbose : bool, default=True
-            Print progress information.
-
-        Returns
-        -------
-        List[List[str]]
-            List of token lists for each document, in same order as input.
-            Empty documents return empty lists.
-        """
-        self._load_model()
-
-        n_docs = len(documents)
-        if verbose:
-            print(f"  Tokenizing {n_docs:,} documents with spaCy ({self.model_name})...")
-
-        # Handle empty documents
-        valid_docs = []
-        valid_indices = []
-        for i, doc in enumerate(documents):
-            if doc and isinstance(doc, str) and len(doc.strip()) > 0:
-                valid_docs.append(doc)
-                valid_indices.append(i)
-
-        if verbose:
-            print(f"    {len(valid_docs):,} non-empty documents to process")
-
-        # Determine number of processes
-        n_process = self.n_process
-        if n_process == -1:
-            import os
-            n_process = max(1, os.cpu_count() - 1)
-
-        # Initialize with empty token lists
-        doc_tokens: List[List[str]] = [[] for _ in range(n_docs)]
-
-        try:
-            # Try multiprocessing first
-            processed = self._nlp.pipe(
-                valid_docs,
-                batch_size=self.batch_size,
-                n_process=n_process
-            )
-
-            for idx, (doc_idx, spacy_doc) in enumerate(zip(valid_indices, processed)):
-                tokens = []
-                for token in spacy_doc:
-                    processed_token = self._process_token(token)
-                    if processed_token:
-                        tokens.append(processed_token)
-                doc_tokens[doc_idx] = tokens
-
-                if verbose and (idx + 1) % 5000 == 0:
-                    print(f"    Processed {idx + 1:,}/{len(valid_docs):,} documents")
-
-        except Exception as e:
-            # Fallback to single-process if multiprocessing fails
-            if verbose:
-                print(f"    Multiprocessing failed ({e}), using single process...")
-
-            for idx, (doc_idx, text) in enumerate(zip(valid_indices, valid_docs)):
-                doc_tokens[doc_idx] = self.tokenize(text)
-
-                if verbose and (idx + 1) % 5000 == 0:
-                    print(f"    Processed {idx + 1:,}/{len(valid_docs):,} documents")
-
-        if verbose:
-            total_tokens = sum(len(tokens) for tokens in doc_tokens)
-            vocab_size = len(set(token for tokens in doc_tokens for token in tokens))
-            print(f"  Tokenization complete: {total_tokens:,} tokens, {vocab_size:,} unique terms")
-
-        return doc_tokens
-
-
-class NLTKTokenizer:
-    """
-    NLTK-based tokenizer fallback (no spaCy dependency).
-
-    Uses NLTK's word_tokenize with French language support, stopword removal,
-    and basic lowercasing/filtering. Does NOT perform lemmatization (use
-    SpaCyTokenizer for that).
-
-    Parameters
-    ----------
-    lowercase : bool, default=True
-        Convert tokens to lowercase.
-    min_word_length : int, default=2
-        Minimum token length to keep.
-    remove_stopwords : bool, default=True
-        Remove French stopwords.
-
-    Examples
-    --------
-    >>> tokenizer = NLTKTokenizer()
-    >>> tokens = tokenizer.batch_tokenize(["Le chat dort sur le canapé"])
-    >>> tokens[0]
-    ['chat', 'dort', 'canapé']
-    """
-
-    # Extended French stopwords (same as LDA script for consistency)
-    FRENCH_STOPWORDS = {
-        'le', 'la', 'les', 'un', 'une', 'des', 'du', 'de', 'à', 'au', 'aux',
-        'et', 'ou', 'mais', 'donc', 'or', 'ni', 'car', 'que', 'qui', 'quoi',
-        'dont', 'où', 'ce', 'cette', 'ces', 'mon', 'ma', 'mes', 'ton', 'ta',
-        'tes', 'son', 'sa', 'ses', 'notre', 'nos', 'votre', 'vos', 'leur', 'leurs',
-        'je', 'tu', 'il', 'elle', 'on', 'nous', 'vous', 'ils', 'elles', 'me', 'te',
-        'se', 'lui', 'y', 'en', 'ne', 'pas', 'plus', 'moins', 'très', 'trop',
-        'bien', 'mal', 'peu', 'beaucoup', 'tout', 'tous', 'toute', 'toutes',
-        'rien', 'personne', 'quelque', 'quelques', 'chaque', 'même', 'autre',
-        'autres', 'dans', 'sur', 'sous', 'avec', 'sans', 'pour', 'par', 'entre',
-        'vers', 'chez', 'avant', 'après', 'depuis', 'pendant', 'comme', 'si',
-        'quand', 'lorsque', 'parce', 'puisque', 'ainsi', 'alors', 'donc',
-        'être', 'avoir', 'faire', 'dire', 'aller', 'voir', 'savoir', 'pouvoir',
-        'vouloir', 'devoir', 'falloir', 'venir', 'prendre', 'mettre', 'partir',
-        'est', 'sont', 'était', 'été', 'ai', 'as', 'a', 'avons', 'avez', 'ont',
-        'suis', 'es', 'sommes', 'êtes', 'fait', 'fais', 'font', 'va', 'vais',
-        'vont', 'dit', 'dis', 'peut', 'peux', 'peuvent', 'veut', 'veux', 'veulent',
-        'doit', 'dois', 'doivent', 'faut', 'vient', 'viens', 'viennent',
-        'c', 'd', 'j', 'l', 'm', 'n', 's', 't', 'qu', 'jusqu', 'lorsqu',
-        'là', 'ça', 'cela', 'ceci', 'celui', 'celle', 'ceux',
-        'oh', 'ah', 'eh', 'hé', 'ouais', 'yeah', 'yo', 'hey', 'ok', 'okay',
-        'nan', 'non', 'oui', 'bah', 'ben', 'hein', 'genre',
-        'moi', 'toi', 'soi', 'eux',
-        # Filler words common in French rap
-        'wesh', 'gros', 'frère', 'mec', 'poto', 'igo', 'izi', 'baby',
-        'ouai', 'woh', 'wow', 'mmh', 'han',
-    }
-
-    def __init__(
-        self,
-        lowercase: bool = True,
-        min_word_length: int = 2,
-        remove_stopwords: bool = True,
-    ):
-        self.lowercase = lowercase
-        self.min_word_length = min_word_length
-        self.remove_stopwords = remove_stopwords
-        self._word_tokenize = None
-
-    def _load(self):
-        """Lazy load NLTK resources."""
-        if self._word_tokenize is None:
-            import nltk
-            try:
-                nltk.data.find('tokenizers/punkt_tab')
-            except LookupError:
-                nltk.download('punkt_tab', quiet=True)
-            from nltk.tokenize import word_tokenize
-            self._word_tokenize = word_tokenize
-
-            # Also try to load NLTK French stopwords to augment ours
-            try:
-                nltk.data.find('corpora/stopwords')
-            except LookupError:
-                nltk.download('stopwords', quiet=True)
-            try:
-                from nltk.corpus import stopwords
-                self.FRENCH_STOPWORDS = self.FRENCH_STOPWORDS | set(stopwords.words('french'))
-            except Exception:
-                pass  # Use our built-in list
-
-    def tokenize(self, text: str) -> List[str]:
-        """Tokenize a single document."""
-        self._load()
-
-        if not text or not isinstance(text, str):
-            return []
-
-        if self.lowercase:
-            text = text.lower()
-
-        tokens = self._word_tokenize(text, language='french')
-
-        result = []
-        for token in tokens:
-            if len(token) < self.min_word_length:
-                continue
-            if not any(c.isalpha() for c in token):
-                continue
-            if self.remove_stopwords and token in self.FRENCH_STOPWORDS:
-                continue
-            result.append(token)
-
-        return result
-
-    def batch_tokenize(
-        self,
-        documents: List[str],
-        verbose: bool = True
-    ) -> List[List[str]]:
-        """
-        Batch tokenize documents using NLTK.
-
-        Parameters
-        ----------
-        documents : List[str]
-            List of document texts.
-        verbose : bool, default=True
-            Print progress information.
-
-        Returns
-        -------
-        List[List[str]]
-            Token lists for each document.
-        """
-        self._load()
-
-        n_docs = len(documents)
-        if verbose:
-            print(f"  Tokenizing {n_docs:,} documents with NLTK (word_tokenize, French)...")
-
-        doc_tokens: List[List[str]] = []
-        for idx, doc in enumerate(documents):
-            doc_tokens.append(self.tokenize(doc))
-            if verbose and (idx + 1) % 5000 == 0:
-                print(f"    Processed {idx + 1:,}/{n_docs:,} documents")
-
-        if verbose:
-            total_tokens = sum(len(tokens) for tokens in doc_tokens)
-            vocab_size = len(set(token for tokens in doc_tokens for token in tokens))
-            print(f"  Tokenization complete: {total_tokens:,} tokens, {vocab_size:,} unique terms")
-
-        return doc_tokens
-
-
-def batch_tokenize_documents(
-    documents: List[str],
-    tokenizer=None,
-    model_name: str = 'fr_core_news_lg',
-    **tokenizer_kwargs
-) -> List[List[str]]:
-    """
-    Convenience function to batch tokenize documents.
-
-    Parameters
-    ----------
-    documents : List[str]
-        List of document texts.
-    tokenizer : SpaCyTokenizer or NLTKTokenizer, optional
-        Pre-configured tokenizer. If None, creates a SpaCyTokenizer.
-    model_name : str or None, default='fr_core_news_lg'
-        SpaCy model to use if creating new tokenizer.
-        If None, uses NLTKTokenizer instead.
-    **tokenizer_kwargs
-        Additional arguments passed to tokenizer constructor.
-
-    Returns
-    -------
-    List[List[str]]
-        Token lists for each document.
-
-    Examples
-    --------
-    >>> # SpaCy tokenization
-    >>> tokens = batch_tokenize_documents(docs, model_name='fr_core_news_lg')
-    >>>
-    >>> # NLTK tokenization (no spaCy dependency)
-    >>> tokens = batch_tokenize_documents(docs, model_name=None)
-    """
-    if tokenizer is None:
-        if model_name is None:
-            tokenizer = NLTKTokenizer(**tokenizer_kwargs)
-        else:
-            tokenizer = SpaCyTokenizer(model_name=model_name, **tokenizer_kwargs)
-
-    return tokenizer.batch_tokenize(documents)
 
 
 class BaseDistance(ABC):
@@ -549,13 +96,15 @@ class LabbeDistance(BaseDistance):
     """
     Labbé intertextual distance.
 
-    Measures lexical similarity between two texts based on relative word
-    frequencies. Standard metric in French stylometry and JADT community.
+    Measures lexical similarity between two texts based on word frequencies,
+    using the original algorithm from IRAMUTEQ/ALCESTE. Standard metric in
+    French stylometry and JADT community.
 
-    Formula:
-        D(A, B) = 0.5 * Σ|f_A(w) - f_B(w)|
-
-    where f_A(w) and f_B(w) are the relative frequencies of word w in texts A and B.
+    Algorithm (from IRAMUTEQ R implementation):
+        1. Identify the smaller text (N_small) and larger text (N_large)
+        2. Scale the larger text's counts by U = N_small / N_large
+        3. Compute sum of absolute differences on scaled counts
+        4. Normalize: D = sum_diff / (N_small + sum(scaled_large where >= 1))
 
     The distance is bounded [0, 1]:
     - 0: Identical word distributions
@@ -567,6 +116,7 @@ class LabbeDistance(BaseDistance):
       attribution. Journal of Quantitative Linguistics, 8(3), 213-231.
     - Labbé, D., & Monière, D. (2003). Le vocabulaire gouvernemental:
       Canada, Québec, France (1945-2000). Champion.
+    - IRAMUTEQ implementation: gitlab.huma-num.fr/pratinaud/iramuteq
 
     Parameters
     ----------
@@ -579,7 +129,7 @@ class LabbeDistance(BaseDistance):
     --------
     >>> dist = LabbeDistance()
     >>> dist.compute("le chat noir", "le chien noir")
-    0.333...  # 2 common words out of 3 unique
+    0.333...
     """
 
     def __init__(self, lowercase: bool = True, min_word_length: int = 1):
@@ -600,7 +150,12 @@ class LabbeDistance(BaseDistance):
 
     def compute_from_counts(self, counts1: Counter, counts2: Counter) -> float:
         """
-        Compute Labbé distance from pre-computed word counts (optimized).
+        Compute Labbé distance from pre-computed word counts.
+
+        Implements the original IRAMUTEQ algorithm:
+        1. Scale larger text to match smaller text size
+        2. Sum absolute differences on scaled counts
+        3. Normalize by (N_small + adjusted_N_large)
 
         Parameters
         ----------
@@ -614,23 +169,59 @@ class LabbeDistance(BaseDistance):
         float
             Labbé distance in [0, 1].
         """
-        total1 = sum(counts1.values())
-        total2 = sum(counts2.values())
+        N1 = sum(counts1.values())
+        N2 = sum(counts2.values())
 
-        if total1 == 0 or total2 == 0:
+        if N1 == 0 or N2 == 0:
             return 1.0  # Maximum distance for empty texts
 
-        # Union of vocabularies
-        all_words = set(counts1.keys()) | set(counts2.keys())
+        # Identify smaller and larger texts
+        if N1 > N2:
+            counts_large, counts_small = counts1, counts2
+            N_large, N_small = N1, N2
+        else:
+            counts_large, counts_small = counts2, counts1
+            N_large, N_small = N2, N1
 
-        # Sum of absolute differences in relative frequencies
-        total_diff = sum(
-            abs(counts1.get(word, 0) / total1 - counts2.get(word, 0) / total2)
-            for word in all_words
+        # Scale factor to normalize larger text to smaller
+        U = N_small / N_large
+
+        # Scale the larger text's counts
+        scaled_large = {word: count * U for word, count in counts_large.items()}
+
+        # Compute sum of scaled counts where scaled >= 1
+        # (this is used for normalization denominator)
+        sum_scaled_large_ge1 = sum(
+            scaled_count for scaled_count in scaled_large.values()
+            if scaled_count >= 1
         )
 
-        # Labbé distance is half the sum (bounded [0, 1])
-        return total_diff / 2.0
+        # Three word groups (matching R's commun/deA/deB logic):
+        # - commun: words present in both texts
+        # - deA: words only in the smaller text
+        # - deB: words only in the larger text WITH scaled count >= 1
+        # Words exclusive to the larger text with scaled count < 1 are
+        # excluded from both numerator and denominator (R behavior).
+        total_diff = 0.0
+        for word in counts_small:
+            # commun + deA: all words in the smaller text
+            val_small = counts_small[word]
+            val_large_scaled = scaled_large.get(word, 0)
+            total_diff += abs(val_small - val_large_scaled)
+
+        for word in counts_large:
+            if word not in counts_small:
+                # deB: words only in larger text, but only if scaled >= 1
+                val_large_scaled = scaled_large[word]
+                if val_large_scaled >= 1:
+                    total_diff += val_large_scaled
+
+        # Normalize by (N_small + sum of scaled large counts >= 1)
+        denominator = N_small + sum_scaled_large_ge1
+        if denominator == 0:
+            return 1.0
+
+        return total_diff / denominator
 
     def compute(self, text1: str, text2: str) -> float:
         """
@@ -776,288 +367,160 @@ class JensenShannonDistance(BaseDistance):
         return self.compute_from_counts(counts1, counts2)
 
 
-class WMDDistance(BaseDistance):
+# =============================================================================
+# MODULE-LEVEL DISTANCE HELPERS (used by evaluate_topic_distances)
+# =============================================================================
+
+def _labbe_from_counts(c1: Counter, c2: Counter) -> float:
     """
-    Word Mover's Distance using FastText embeddings.
+    Labbé distance from token counts (IRAMUTEQ R algorithm).
 
-    WMD measures the minimum cumulative distance that words in one document
-    need to "travel" to match words in another document, using word embeddings
-    as the underlying space.
+    Matches the R compute.labbe() implementation:
+    - Scale the larger text down to match the smaller text's size
+    - Exclude words exclusive to the larger text with scaled count < 1
+      from both numerator and denominator
+    - Result is bounded [0, 1]
+    """
+    N1 = sum(c1.values())
+    N2 = sum(c2.values())
+    if N1 == 0 or N2 == 0:
+        return 1.0
 
-    STATUS: Stub implementation. Raises NotImplementedError.
+    if N1 > N2:
+        counts_large, counts_small = c1, c2
+        N_large, N_small = N1, N2
+    else:
+        counts_large, counts_small = c2, c1
+        N_large, N_small = N2, N1
 
-    To be implemented with:
-    - FastText French word embeddings (cc.fr.300.bin)
-    - Gensim's wmdistance or custom EMD solver
+    U = N_small / N_large
+    scaled_large = {w: c * U for w, c in counts_large.items()}
+    sum_scaled_ge1 = sum(sc for sc in scaled_large.values() if sc >= 1)
 
-    References
-    ----------
-    - Kusner, M., et al. (2015). From word embeddings to document distances.
-      ICML, 957-966.
+    # Words in smaller text (commun + deA)
+    total_diff = sum(
+        abs(counts_small[w] - scaled_large.get(w, 0))
+        for w in counts_small
+    )
+    # Words only in larger text with scaled count >= 1 (deB)
+    total_diff += sum(
+        scaled_large[w] for w in counts_large
+        if w not in counts_small and scaled_large[w] >= 1
+    )
+
+    denominator = N_small + sum_scaled_ge1
+    return total_diff / denominator if denominator > 0 else 1.0
+
+
+def _js_from_counts(c1: Counter, c2: Counter) -> float:
+    """Jensen-Shannon distance from token counts."""
+    total1 = sum(c1.values())
+    total2 = sum(c2.values())
+    if total1 == 0 or total2 == 0:
+        return 1.0
+    all_words = list(set(c1.keys()) | set(c2.keys()))
+    vec1 = np.array([c1.get(w, 0) for w in all_words], dtype=np.float64)
+    vec2 = np.array([c2.get(w, 0) for w in all_words], dtype=np.float64)
+    vec1 /= total1
+    vec2 /= total2
+    return float(jensenshannon(vec1, vec2))
+
+
+# =============================================================================
+# AGGREGATION UTILITIES
+# =============================================================================
+
+def aggregate_documents(
+    doc_tokens: List[List[str]],
+    indices: List[int],
+    aggregation_size: int = 20,
+    random_seed: Optional[int] = None
+) -> List[Counter]:
+    """
+    Aggregate multiple documents into larger units by merging tokens.
+
+    This helps with Labbé distance which is sensitive to text length.
+    By aggregating n verses together, we get more comparable text sizes.
 
     Parameters
     ----------
-    fasttext_path : str, optional
-        Path to FastText binary model file.
-    """
-
-    def __init__(self, fasttext_path: Optional[str] = None):
-        self.fasttext_path = fasttext_path
-        self._model = None
-
-    def compute(self, text1: str, text2: str) -> float:
-        """
-        Compute Word Mover's Distance between two texts.
-
-        Raises
-        ------
-        NotImplementedError
-            WMD + FastText implementation pending.
-        """
-        raise NotImplementedError(
-            "WMD + FastText à implémenter. "
-            "Requires: gensim, fasttext embeddings (cc.fr.300.bin)"
-        )
-
-
-def evaluate_topic_coherence(
-    documents: List[str],
-    topic_assignments: List[int],
-    distance: BaseDistance,
-    sample_size: int = 50,
-    random_seed: Optional[int] = None,
-    max_topics: Optional[int] = None,
-    verbose: bool = False
-) -> Dict[str, any]:
-    """
-    Evaluate intra-topic homogeneity using pairwise document distances.
-
-    For each topic, computes the mean distance between documents assigned
-    to that topic. Lower mean distance indicates more lexically homogeneous
-    topics, suggesting better clustering quality.
-
-    OPTIMIZED VERSION: Pre-tokenizes documents to avoid redundant processing.
-
-    Parameters
-    ----------
-    documents : List[str]
-        List of document texts.
-    topic_assignments : List[int]
-        Topic assignment for each document (same length as documents).
-        Topic -1 is treated as outliers and excluded from analysis.
-    distance : BaseDistance
-        Distance metric instance to use for pairwise comparisons.
-    sample_size : int, default=50
-        Maximum number of document pairs to sample per topic.
-        Set to -1 for exhaustive computation (may be slow for large topics).
+    doc_tokens : List[List[str]]
+        Pre-tokenized documents.
+    indices : List[int]
+        Indices of documents to aggregate.
+    aggregation_size : int, default=20
+        Number of documents to merge into each unit.
     random_seed : int, optional
-        Random seed for reproducible sampling.
-    max_topics : int, optional
-        Maximum number of topics to analyze (for very large topic sets).
-        If None, all topics are analyzed.
-    verbose : bool, default=False
-        Print progress information.
+        Random seed for shuffling before aggregation.
 
     Returns
     -------
-    dict
-        Results dictionary containing:
-        - 'mean': float - Overall mean intra-topic distance
-        - 'std': float - Standard deviation across topics
-        - 'per_topic': Dict[int, dict] - Per-topic statistics with:
-            - 'mean_distance': float
-            - 'n_documents': int
-            - 'n_pairs_sampled': int
-        - 'distance_metric': str - Name of the distance metric used
-        - 'total_documents': int - Number of documents analyzed (excluding outliers)
-        - 'n_topics': int - Number of topics analyzed
-
-    Notes
-    -----
-    - Topic -1 (BERTopic outliers) is automatically excluded.
-    - For topics with only 1 document, distance is reported as 0.
-    - Sampling is used for computational efficiency; increase sample_size
-      for more precise estimates.
-
-    Examples
-    --------
-    >>> from utils.comparaison_utils.topic_distances import (
-    ...     LabbeDistance, evaluate_topic_coherence
-    ... )
-    >>> docs = ["le chat dort", "le chat mange", "le chien joue", "le chien court"]
-    >>> topics = [0, 0, 1, 1]
-    >>> dist = LabbeDistance()
-    >>> results = evaluate_topic_coherence(docs, topics, dist)
-    >>> print(f"Mean intra-topic distance: {results['mean']:.4f}")
+    List[Counter]
+        List of aggregated token counts.
     """
-    if len(documents) != len(topic_assignments):
-        raise ValueError(
-            f"Length mismatch: {len(documents)} documents vs "
-            f"{len(topic_assignments)} topic assignments"
-        )
-
     if random_seed is not None:
         random.seed(random_seed)
-        np.random.seed(random_seed)
 
-    # Group document indices by topic (exclude outliers: topic -1)
-    topic_doc_indices: Dict[int, List[int]] = {}
-    for idx, topic in enumerate(topic_assignments):
-        if topic == -1:
-            continue  # Skip BERTopic outliers
-        if topic not in topic_doc_indices:
-            topic_doc_indices[topic] = []
-        topic_doc_indices[topic].append(idx)
+    # Shuffle indices to avoid bias from document ordering
+    shuffled_indices = indices.copy()
+    random.shuffle(shuffled_indices)
 
-    if not topic_doc_indices:
-        return {
-            'mean': 0.0,
-            'std': 0.0,
-            'per_topic': {},
-            'distance_metric': distance.__class__.__name__,
-            'total_documents': 0,
-            'n_topics': 0
-        }
-
-    # Limit number of topics if specified
-    topic_ids = sorted(topic_doc_indices.keys())
-    if max_topics is not None and len(topic_ids) > max_topics:
-        topic_ids = topic_ids[:max_topics]
-        if verbose:
-            print(f"    Limiting analysis to {max_topics} topics")
-
-    # Pre-compute word counts for all documents in selected topics
-    # This is the key optimization: tokenize each document only once
-    if verbose:
-        print(f"    Pre-tokenizing documents...")
-
-    doc_counts: Dict[int, Counter] = {}
-    indices_needed = set()
-    for topic_id in topic_ids:
-        indices_needed.update(topic_doc_indices[topic_id])
-
-    for idx in indices_needed:
-        doc_text = documents[idx]
-        if hasattr(distance, 'get_counts'):
-            doc_counts[idx] = distance.get_counts(doc_text)
-        else:
-            # Fallback for distances without get_counts
-            doc_counts[idx] = None
-
-    # Compute intra-topic distances
-    per_topic_results: Dict[int, dict] = {}
-    all_topic_means: List[float] = []
-
-    for topic_idx, topic_id in enumerate(topic_ids):
-        doc_indices = topic_doc_indices[topic_id]
-        n_docs = len(doc_indices)
-
-        if verbose and topic_idx % 10 == 0:
-            print(f"    Processing topic {topic_id} ({topic_idx + 1}/{len(topic_ids)}), {n_docs} docs")
-
-        if n_docs < 2:
-            # Single document: distance is 0 (perfectly homogeneous)
-            per_topic_results[topic_id] = {
-                'mean_distance': 0.0,
-                'n_documents': n_docs,
-                'n_pairs_sampled': 0
-            }
-            all_topic_means.append(0.0)
+    aggregated = []
+    for i in range(0, len(shuffled_indices), aggregation_size):
+        batch_indices = shuffled_indices[i:i + aggregation_size]
+        if len(batch_indices) < aggregation_size // 2:
+            # Skip very small batches at the end
             continue
 
-        # Generate pairs using itertools (memory efficient)
-        n_total_pairs = n_docs * (n_docs - 1) // 2
+        # Merge all tokens from the batch
+        merged_counts = Counter()
+        for idx in batch_indices:
+            merged_counts.update(doc_tokens[idx])
 
-        # Sample pairs if needed
-        if sample_size > 0 and n_total_pairs > sample_size:
-            # Random sampling without generating all pairs
-            sampled_pairs = set()
-            max_attempts = sample_size * 3  # Avoid infinite loop
-            attempts = 0
-            while len(sampled_pairs) < sample_size and attempts < max_attempts:
-                i = random.randint(0, n_docs - 1)
-                j = random.randint(0, n_docs - 1)
-                if i != j:
-                    pair = (min(i, j), max(i, j))
-                    sampled_pairs.add(pair)
-                attempts += 1
-            sampled_pairs = list(sampled_pairs)
-        else:
-            # Use itertools.combinations (memory efficient iterator)
-            sampled_pairs = list(itertools.combinations(range(n_docs), 2))
+        if sum(merged_counts.values()) > 0:
+            aggregated.append(merged_counts)
 
-        # Compute distances using pre-computed counts
-        distances = []
-        for i, j in sampled_pairs:
-            idx_i = doc_indices[i]
-            idx_j = doc_indices[j]
-
-            counts_i = doc_counts.get(idx_i)
-            counts_j = doc_counts.get(idx_j)
-
-            if counts_i is not None and counts_j is not None:
-                # Use optimized compute_from_counts
-                dist = distance.compute_from_counts(counts_i, counts_j)
-            else:
-                # Fallback to text-based computation
-                dist = distance.compute(documents[idx_i], documents[idx_j])
-
-            distances.append(dist)
-
-        mean_dist = np.mean(distances) if distances else 0.0
-
-        per_topic_results[topic_id] = {
-            'mean_distance': float(mean_dist),
-            'n_documents': n_docs,
-            'n_pairs_sampled': len(sampled_pairs)
-        }
-        all_topic_means.append(mean_dist)
-
-    # Aggregate statistics
-    total_docs = sum(len(topic_doc_indices[t]) for t in topic_ids)
-
-    return {
-        'mean': float(np.mean(all_topic_means)) if all_topic_means else 0.0,
-        'std': float(np.std(all_topic_means)) if all_topic_means else 0.0,
-        'per_topic': per_topic_results,
-        'distance_metric': distance.__class__.__name__,
-        'total_documents': total_docs,
-        'n_topics': len(topic_ids)
-    }
+    return aggregated
 
 
-def evaluate_topic_coherence_from_tokens(
+# =============================================================================
+# COMPREHENSIVE TOPIC DISTANCE EVALUATION
+# =============================================================================
+
+def evaluate_topic_distances(
     doc_tokens: List[List[str]],
     topic_assignments: List[int],
+    mode: str = 'intra_all_paired',
     distance_type: str = 'both',
-    sample_size: int = 50,
+    aggregation_size: int = 20,
+    sample_size: int = 5000,
     random_seed: Optional[int] = None,
     max_topics: Optional[int] = None,
     verbose: bool = False
 ) -> Dict[str, dict]:
     """
-    Evaluate intra-topic homogeneity using PRE-TOKENIZED documents.
-
-    This function is optimized for computing distances across multiple models
-    without re-tokenizing documents. Tokenize once with SpaCyTokenizer, then
-    use this function for each model's topic assignments.
+    Comprehensive topic distance evaluation with multiple modes.
 
     Parameters
     ----------
     doc_tokens : List[List[str]]
         Pre-tokenized documents (from SpaCyTokenizer.batch_tokenize).
-        Each element is a list of tokens for one document.
     topic_assignments : List[int]
-        Topic assignment for each document. Topic -1 is treated as outliers.
+        Topic assignment for each document. Topic -1 = outliers (excluded).
+    mode : str, default='intra_all_paired'
+        Distance computation mode:
+        - 'intra_all_paired': Pairwise distances within topics (homogeneity)
+        - 'inter_all_paired': Distances between inside and outside topic (separation)
+        - 'intra_aggregated': Intra-topic with aggregated documents
+        - 'inter_aggregated': Inter-topic with aggregated documents
     distance_type : str, default='both'
-        Which distances to compute:
-        - 'js': Jensen-Shannon only
-        - 'labbe': Labbé only
-        - 'both': Both distances
-    sample_size : int, default=50
-        Maximum document pairs to sample per topic.
+        Which distances to compute: 'js', 'labbe', or 'both'
+    aggregation_size : int, default=20
+        Number of documents to aggregate (for aggregated modes).
+    sample_size : int, default=5000
+        Maximum pairs to sample per topic.
     random_seed : int, optional
-        Random seed for reproducible sampling.
+        Random seed for reproducibility.
     max_topics : int, optional
         Maximum number of topics to analyze.
     verbose : bool, default=False
@@ -1066,25 +529,12 @@ def evaluate_topic_coherence_from_tokens(
     Returns
     -------
     dict
-        Results dictionary containing:
-        - 'js': Jensen-Shannon results (if requested)
-        - 'labbe': Labbé results (if requested)
-        Each sub-dict has: mean, std, n_topics, per_topic
-
-    Examples
-    --------
-    >>> # Tokenize all documents once
-    >>> tokenizer = SpaCyTokenizer(model_name='fr_core_news_lg')
-    >>> doc_tokens = tokenizer.batch_tokenize(all_documents)
-    >>>
-    >>> # Compute distances for BERTopic assignments
-    >>> results_bert = evaluate_topic_coherence_from_tokens(doc_tokens, bert_topics)
-    >>>
-    >>> # Reuse same tokens for LDA assignments
-    >>> results_lda = evaluate_topic_coherence_from_tokens(doc_tokens, lda_topics)
-    >>>
-    >>> # And for IRAMUTEQ
-    >>> results_ira = evaluate_topic_coherence_from_tokens(doc_tokens, iramuteq_topics)
+        Results containing 'js' and/or 'labbe' sub-dicts with:
+        - 'mean': Overall mean distance
+        - 'std': Standard deviation across topics
+        - 'per_topic': Per-topic statistics
+        - 'mode': The computation mode used
+        - 'aggregation_size': Aggregation size (if applicable)
     """
     if len(doc_tokens) != len(topic_assignments):
         raise ValueError(
@@ -1098,18 +548,21 @@ def evaluate_topic_coherence_from_tokens(
 
     # Group document indices by topic (exclude outliers: topic -1)
     topic_doc_indices: Dict[int, List[int]] = {}
+    all_non_outlier_indices: List[int] = []
     for idx, topic in enumerate(topic_assignments):
         if topic == -1:
             continue
         if topic not in topic_doc_indices:
             topic_doc_indices[topic] = []
         topic_doc_indices[topic].append(idx)
+        all_non_outlier_indices.append(idx)
 
     results = {}
 
     if not topic_doc_indices:
         empty_result = {
-            'mean': 0.0, 'std': 0.0, 'per_topic': {}, 'n_topics': 0, 'total_documents': 0
+            'mean': 0.0, 'std': 0.0, 'per_topic': {}, 'n_topics': 0,
+            'total_documents': 0, 'mode': mode
         }
         if distance_type in ('js', 'both'):
             results['js'] = empty_result.copy()
@@ -1121,30 +574,75 @@ def evaluate_topic_coherence_from_tokens(
     if max_topics is not None and len(topic_ids) > max_topics:
         topic_ids = topic_ids[:max_topics]
 
-    # Pre-compute token counts for all needed documents
-    # (Only compute Counter once per document, even if it appears in multiple comparisons)
     if verbose:
-        print("  Pre-computing token counts from token lists...")
+        print(f"  Mode: {mode}, Distance: {distance_type}")
+        print(f"  Topics: {len(topic_ids)}, Documents: {len(all_non_outlier_indices)}")
 
-    indices_needed = set()
-    for topic_id in topic_ids:
-        indices_needed.update(topic_doc_indices[topic_id])
+    # Pre-compute token counts
+    if verbose:
+        print("  Pre-computing token counts...")
 
     doc_counts: Dict[int, Counter] = {}
-    for idx in indices_needed:
+    for idx in all_non_outlier_indices:
         doc_counts[idx] = Counter(doc_tokens[idx])
 
-    # Helper function to compute mean distances for a metric
-    def compute_distances_for_metric(compute_fn: Callable, metric_name: str) -> dict:
-        per_topic_results: Dict[int, dict] = {}
-        all_topic_means: List[float] = []
+    # Dispatch to appropriate computation mode
+    if mode == 'intra_all_paired':
+        results = _compute_intra_paired(
+            topic_ids, topic_doc_indices, doc_counts,
+            _labbe_from_counts, _js_from_counts, distance_type,
+            sample_size, verbose
+        )
+    elif mode == 'inter_all_paired':
+        results = _compute_inter_paired(
+            topic_ids, topic_doc_indices, all_non_outlier_indices, doc_counts,
+            _labbe_from_counts, _js_from_counts, distance_type,
+            sample_size, verbose
+        )
+    elif mode == 'intra_aggregated':
+        results = _compute_intra_aggregated(
+            topic_ids, topic_doc_indices, doc_tokens,
+            _labbe_from_counts, _js_from_counts, distance_type,
+            aggregation_size, sample_size, random_seed, verbose
+        )
+    elif mode == 'inter_aggregated':
+        results = _compute_inter_aggregated(
+            topic_ids, topic_doc_indices, all_non_outlier_indices, doc_tokens,
+            _labbe_from_counts, _js_from_counts, distance_type,
+            aggregation_size, sample_size, random_seed, verbose
+        )
+    else:
+        raise ValueError(f"Unknown mode: {mode}. Use 'intra_all_paired', "
+                        f"'inter_all_paired', 'intra_aggregated', or 'inter_aggregated'")
+
+    # Add mode info to results
+    for key in results:
+        results[key]['mode'] = mode
+        if 'aggregated' in mode:
+            results[key]['aggregation_size'] = aggregation_size
+
+    return results
+
+
+def _compute_intra_paired(
+    topic_ids: List[int],
+    topic_doc_indices: Dict[int, List[int]],
+    doc_counts: Dict[int, Counter],
+    labbe_fn: Callable,
+    js_fn: Callable,
+    distance_type: str,
+    sample_size: int,
+    verbose: bool
+) -> Dict[str, dict]:
+    """Compute intra-topic pairwise distances (homogeneity)."""
+
+    def compute_for_metric(compute_fn: Callable, metric_name: str) -> dict:
+        per_topic_results = {}
+        all_topic_means = []
 
         for topic_idx, topic_id in enumerate(topic_ids):
             doc_indices = topic_doc_indices[topic_id]
             n_docs = len(doc_indices)
-
-            if verbose and topic_idx % 10 == 0:
-                print(f"    [{metric_name}] Topic {topic_id} ({topic_idx + 1}/{len(topic_ids)})")
 
             if n_docs < 2:
                 per_topic_results[topic_id] = {
@@ -1156,26 +654,14 @@ def evaluate_topic_coherence_from_tokens(
             # Sample pairs
             n_total_pairs = n_docs * (n_docs - 1) // 2
             if sample_size > 0 and n_total_pairs > sample_size:
-                sampled_pairs = set()
-                max_attempts = sample_size * 3
-                attempts = 0
-                while len(sampled_pairs) < sample_size and attempts < max_attempts:
-                    i = random.randint(0, n_docs - 1)
-                    j = random.randint(0, n_docs - 1)
-                    if i != j:
-                        pair = (min(i, j), max(i, j))
-                        sampled_pairs.add(pair)
-                    attempts += 1
-                sampled_pairs = list(sampled_pairs)
+                sampled_pairs = _sample_pairs(n_docs, sample_size)
             else:
                 sampled_pairs = list(itertools.combinations(range(n_docs), 2))
 
-            # Compute distances using pre-computed counts
+            # Compute distances
             distances = []
             for i, j in sampled_pairs:
-                idx_i = doc_indices[i]
-                idx_j = doc_indices[j]
-                dist = compute_fn(doc_counts[idx_i], doc_counts[idx_j])
+                dist = compute_fn(doc_counts[doc_indices[i]], doc_counts[doc_indices[j]])
                 distances.append(dist)
 
             mean_dist = np.mean(distances) if distances else 0.0
@@ -1186,8 +672,11 @@ def evaluate_topic_coherence_from_tokens(
             }
             all_topic_means.append(mean_dist)
 
-        total_docs = sum(len(topic_doc_indices[t]) for t in topic_ids)
+            if verbose:
+                print(f"    [{metric_name}] Topic {topic_id}: {n_docs} docs, "
+                      f"mean={mean_dist:.4f}")
 
+        total_docs = sum(len(topic_doc_indices[t]) for t in topic_ids)
         return {
             'mean': float(np.mean(all_topic_means)) if all_topic_means else 0.0,
             'std': float(np.std(all_topic_means)) if all_topic_means else 0.0,
@@ -1196,42 +685,720 @@ def evaluate_topic_coherence_from_tokens(
             'total_documents': total_docs
         }
 
-    # Define distance computation functions using Counters
-    def labbe_from_counts(c1: Counter, c2: Counter) -> float:
-        """Labbé distance from token counts."""
-        total1 = sum(c1.values())
-        total2 = sum(c2.values())
-        if total1 == 0 or total2 == 0:
-            return 1.0
-        all_words = set(c1.keys()) | set(c2.keys())
-        total_diff = sum(
-            abs(c1.get(word, 0) / total1 - c2.get(word, 0) / total2)
-            for word in all_words
-        )
-        return total_diff / 2.0
-
-    def js_from_counts(c1: Counter, c2: Counter) -> float:
-        """Jensen-Shannon distance from token counts."""
-        total1 = sum(c1.values())
-        total2 = sum(c2.values())
-        if total1 == 0 or total2 == 0:
-            return 1.0
-        all_words = list(set(c1.keys()) | set(c2.keys()))
-        vec1 = np.array([c1.get(w, 0) for w in all_words], dtype=np.float64)
-        vec2 = np.array([c2.get(w, 0) for w in all_words], dtype=np.float64)
-        vec1 /= total1
-        vec2 /= total2
-        return float(jensenshannon(vec1, vec2))
-
-    # Compute requested distances
+    results = {}
     if distance_type in ('labbe', 'both'):
         if verbose:
-            print("  Computing Labbé distances...")
-        results['labbe'] = compute_distances_for_metric(labbe_from_counts, 'Labbé')
-
+            print("  Computing intra-topic Labbé distances...")
+        results['labbe'] = compute_for_metric(labbe_fn, 'Labbé')
     if distance_type in ('js', 'both'):
         if verbose:
-            print("  Computing Jensen-Shannon distances...")
-        results['js'] = compute_distances_for_metric(js_from_counts, 'JS')
+            print("  Computing intra-topic Jensen-Shannon distances...")
+        results['js'] = compute_for_metric(js_fn, 'JS')
 
     return results
+
+
+def _compute_inter_paired(
+    topic_ids: List[int],
+    topic_doc_indices: Dict[int, List[int]],
+    all_indices: List[int],
+    doc_counts: Dict[int, Counter],
+    labbe_fn: Callable,
+    js_fn: Callable,
+    distance_type: str,
+    sample_size: int,
+    verbose: bool
+) -> Dict[str, dict]:
+    """Compute inter-topic distances (inside vs outside topic - separation)."""
+
+    # Build set of indices per topic for fast lookup
+    topic_index_sets = {t: set(topic_doc_indices[t]) for t in topic_ids}
+
+    def compute_for_metric(compute_fn: Callable, metric_name: str) -> dict:
+        per_topic_results = {}
+        all_topic_means = []
+
+        for topic_idx, topic_id in enumerate(topic_ids):
+            inside_indices = topic_doc_indices[topic_id]
+            outside_indices = [i for i in all_indices if i not in topic_index_sets[topic_id]]
+
+            n_inside = len(inside_indices)
+            n_outside = len(outside_indices)
+
+            if n_inside == 0 or n_outside == 0:
+                per_topic_results[topic_id] = {
+                    'mean_distance': 0.0, 'n_inside': n_inside,
+                    'n_outside': n_outside, 'n_pairs_sampled': 0
+                }
+                all_topic_means.append(0.0)
+                continue
+
+            # Total possible pairs = n_inside * n_outside
+            n_total_pairs = n_inside * n_outside
+            if sample_size > 0 and n_total_pairs > sample_size:
+                # Sample random pairs (inside, outside)
+                sampled_pairs = []
+                seen = set()
+                max_attempts = sample_size * 3
+                attempts = 0
+                while len(sampled_pairs) < sample_size and attempts < max_attempts:
+                    i = random.randint(0, n_inside - 1)
+                    j = random.randint(0, n_outside - 1)
+                    if (i, j) not in seen:
+                        seen.add((i, j))
+                        sampled_pairs.append((inside_indices[i], outside_indices[j]))
+                    attempts += 1
+            else:
+                sampled_pairs = [
+                    (inside_indices[i], outside_indices[j])
+                    for i in range(n_inside) for j in range(n_outside)
+                ]
+
+            # Compute distances
+            distances = []
+            for idx_in, idx_out in sampled_pairs:
+                dist = compute_fn(doc_counts[idx_in], doc_counts[idx_out])
+                distances.append(dist)
+
+            mean_dist = np.mean(distances) if distances else 0.0
+            per_topic_results[topic_id] = {
+                'mean_distance': float(mean_dist),
+                'n_inside': n_inside,
+                'n_outside': n_outside,
+                'n_pairs_sampled': len(sampled_pairs)
+            }
+            all_topic_means.append(mean_dist)
+
+            if verbose:
+                print(f"    [{metric_name}] Topic {topic_id}: {n_inside} in, "
+                      f"{n_outside} out, mean={mean_dist:.4f}")
+
+        total_docs = len(all_indices)
+        return {
+            'mean': float(np.mean(all_topic_means)) if all_topic_means else 0.0,
+            'std': float(np.std(all_topic_means)) if all_topic_means else 0.0,
+            'per_topic': per_topic_results,
+            'n_topics': len(topic_ids),
+            'total_documents': total_docs
+        }
+
+    results = {}
+    if distance_type in ('labbe', 'both'):
+        if verbose:
+            print("  Computing inter-topic Labbé distances...")
+        results['labbe'] = compute_for_metric(labbe_fn, 'Labbé')
+    if distance_type in ('js', 'both'):
+        if verbose:
+            print("  Computing inter-topic Jensen-Shannon distances...")
+        results['js'] = compute_for_metric(js_fn, 'JS')
+
+    return results
+
+
+def _compute_intra_aggregated(
+    topic_ids: List[int],
+    topic_doc_indices: Dict[int, List[int]],
+    doc_tokens: List[List[str]],
+    labbe_fn: Callable,
+    js_fn: Callable,
+    distance_type: str,
+    aggregation_size: int,
+    sample_size: int,
+    random_seed: Optional[int],
+    verbose: bool
+) -> Dict[str, dict]:
+    """Compute intra-topic distances with aggregated documents."""
+
+    def compute_for_metric(compute_fn: Callable, metric_name: str) -> dict:
+        per_topic_results = {}
+        all_topic_means = []
+
+        for topic_idx, topic_id in enumerate(topic_ids):
+            doc_indices = topic_doc_indices[topic_id]
+
+            # Aggregate documents
+            aggregated_counts = aggregate_documents(
+                doc_tokens, doc_indices, aggregation_size, random_seed
+            )
+            n_units = len(aggregated_counts)
+
+            if n_units < 2:
+                per_topic_results[topic_id] = {
+                    'mean_distance': 0.0, 'n_documents': len(doc_indices),
+                    'n_aggregated_units': n_units, 'n_pairs_sampled': 0
+                }
+                all_topic_means.append(0.0)
+                continue
+
+            # Sample pairs of aggregated units
+            n_total_pairs = n_units * (n_units - 1) // 2
+            if sample_size > 0 and n_total_pairs > sample_size:
+                sampled_pairs = _sample_pairs(n_units, sample_size)
+            else:
+                sampled_pairs = list(itertools.combinations(range(n_units), 2))
+
+            # Compute distances
+            distances = []
+            for i, j in sampled_pairs:
+                dist = compute_fn(aggregated_counts[i], aggregated_counts[j])
+                distances.append(dist)
+
+            mean_dist = np.mean(distances) if distances else 0.0
+            per_topic_results[topic_id] = {
+                'mean_distance': float(mean_dist),
+                'n_documents': len(doc_indices),
+                'n_aggregated_units': n_units,
+                'n_pairs_sampled': len(sampled_pairs)
+            }
+            all_topic_means.append(mean_dist)
+
+            if verbose:
+                print(f"    [{metric_name}] Topic {topic_id}: {len(doc_indices)} docs -> "
+                      f"{n_units} units, mean={mean_dist:.4f}")
+
+        total_docs = sum(len(topic_doc_indices[t]) for t in topic_ids)
+        return {
+            'mean': float(np.mean(all_topic_means)) if all_topic_means else 0.0,
+            'std': float(np.std(all_topic_means)) if all_topic_means else 0.0,
+            'per_topic': per_topic_results,
+            'n_topics': len(topic_ids),
+            'total_documents': total_docs
+        }
+
+    results = {}
+    if distance_type in ('labbe', 'both'):
+        if verbose:
+            print(f"  Computing intra-topic Labbé distances (aggregated, n={aggregation_size})...")
+        results['labbe'] = compute_for_metric(labbe_fn, 'Labbé')
+    if distance_type in ('js', 'both'):
+        if verbose:
+            print(f"  Computing intra-topic Jensen-Shannon distances (aggregated, n={aggregation_size})...")
+        results['js'] = compute_for_metric(js_fn, 'JS')
+
+    return results
+
+
+def _compute_inter_aggregated(
+    topic_ids: List[int],
+    topic_doc_indices: Dict[int, List[int]],
+    all_indices: List[int],
+    doc_tokens: List[List[str]],
+    labbe_fn: Callable,
+    js_fn: Callable,
+    distance_type: str,
+    aggregation_size: int,
+    sample_size: int,
+    random_seed: Optional[int],
+    verbose: bool
+) -> Dict[str, dict]:
+    """Compute inter-topic distances with aggregated documents.
+
+    Optimization: pre-aggregates each topic's docs ONCE, then composes
+    the 'outside' set from other topics' pre-aggregated units. This avoids
+    redundant aggregation of ~N_total docs for each of the K topics.
+    """
+
+    # Pre-aggregate each topic's docs once
+    per_topic_units = {}
+    for topic_id in topic_ids:
+        per_topic_units[topic_id] = aggregate_documents(
+            doc_tokens, topic_doc_indices[topic_id], aggregation_size, random_seed
+        )
+
+    def compute_for_metric(compute_fn: Callable, metric_name: str) -> dict:
+        per_topic_results = {}
+        all_topic_means = []
+
+        for topic_idx, topic_id in enumerate(topic_ids):
+            inside_aggregated = per_topic_units[topic_id]
+
+            # Outside = union of all other topics' pre-aggregated units
+            outside_aggregated = [
+                unit for tid, units in per_topic_units.items()
+                if tid != topic_id for unit in units
+            ]
+
+            n_inside = len(inside_aggregated)
+            n_outside = len(outside_aggregated)
+
+            if n_inside == 0 or n_outside == 0:
+                per_topic_results[topic_id] = {
+                    'mean_distance': 0.0, 'n_inside_units': n_inside,
+                    'n_outside_units': n_outside, 'n_pairs_sampled': 0
+                }
+                all_topic_means.append(0.0)
+                continue
+
+            # Sample pairs
+            n_total_pairs = n_inside * n_outside
+            if sample_size > 0 and n_total_pairs > sample_size:
+                sampled_pairs = []
+                seen = set()
+                max_attempts = sample_size * 3
+                attempts = 0
+                while len(sampled_pairs) < sample_size and attempts < max_attempts:
+                    i = random.randint(0, n_inside - 1)
+                    j = random.randint(0, n_outside - 1)
+                    if (i, j) not in seen:
+                        seen.add((i, j))
+                        sampled_pairs.append((i, j))
+                    attempts += 1
+            else:
+                sampled_pairs = [(i, j) for i in range(n_inside) for j in range(n_outside)]
+
+            # Compute distances
+            distances = []
+            for i, j in sampled_pairs:
+                dist = compute_fn(inside_aggregated[i], outside_aggregated[j])
+                distances.append(dist)
+
+            mean_dist = np.mean(distances) if distances else 0.0
+            n_inside_docs = len(topic_doc_indices[topic_id])
+            n_outside_docs = sum(len(topic_doc_indices[t]) for t in topic_ids if t != topic_id)
+            per_topic_results[topic_id] = {
+                'mean_distance': float(mean_dist),
+                'n_inside_docs': n_inside_docs,
+                'n_outside_docs': n_outside_docs,
+                'n_inside_units': n_inside,
+                'n_outside_units': n_outside,
+                'n_pairs_sampled': len(sampled_pairs)
+            }
+            all_topic_means.append(mean_dist)
+
+            if verbose:
+                print(f"    [{metric_name}] Topic {topic_id}: {n_inside} in-units, "
+                      f"{n_outside} out-units, mean={mean_dist:.4f}")
+
+        total_docs = len(all_indices)
+        return {
+            'mean': float(np.mean(all_topic_means)) if all_topic_means else 0.0,
+            'std': float(np.std(all_topic_means)) if all_topic_means else 0.0,
+            'per_topic': per_topic_results,
+            'n_topics': len(topic_ids),
+            'total_documents': total_docs
+        }
+
+    results = {}
+    if distance_type in ('labbe', 'both'):
+        if verbose:
+            print(f"  Computing inter-topic Labbé distances (aggregated, n={aggregation_size})...")
+        results['labbe'] = compute_for_metric(labbe_fn, 'Labbé')
+    if distance_type in ('js', 'both'):
+        if verbose:
+            print(f"  Computing inter-topic Jensen-Shannon distances (aggregated, n={aggregation_size})...")
+        results['js'] = compute_for_metric(js_fn, 'JS')
+
+    return results
+
+
+def _sample_pairs(n: int, sample_size: int) -> List[Tuple[int, int]]:
+    """Sample unique pairs from range(n)."""
+    sampled = set()
+    max_attempts = sample_size * 3
+    attempts = 0
+    while len(sampled) < sample_size and attempts < max_attempts:
+        i = random.randint(0, n - 1)
+        j = random.randint(0, n - 1)
+        if i != j:
+            pair = (min(i, j), max(i, j))
+            sampled.add(pair)
+        attempts += 1
+    return list(sampled)
+
+
+# =============================================================================
+# DYNAMIC AGGREGATION RANGE
+# =============================================================================
+
+def compute_aggregation_range(
+    doc_tokens: List[List[str]],
+    topic_assignments: List[int],
+    n_points: int = 5,
+    min_words_per_unit: int = 500,
+    min_units_per_topic: int = 5,
+    min_step: int = 10,
+    override_min_topic_size: Optional[int] = None,
+) -> Tuple[List[int], dict]:
+    """
+    Compute a data-driven range of aggregation sizes.
+
+    The range is determined by two constraints:
+    - Minimum: smallest batch size guaranteeing >min_words_per_unit tokens
+      per aggregated unit (based on mean document length).
+    - Maximum: largest batch size <= 1/min_units_per_topic of the smallest
+      topic size (so every topic produces enough aggregated units).
+
+    After generating linearly-spaced points, filters out any with gap
+    < min_step from the previous point, ensuring meaningful increments.
+
+    Parameters
+    ----------
+    doc_tokens : List[List[str]]
+        Pre-tokenized documents.
+    topic_assignments : List[int]
+        Topic assignment per document (-1 = outliers, excluded).
+    n_points : int, default=5
+        Target number of linearly-spaced aggregation sizes.
+    min_words_per_unit : int, default=500
+        Minimum total tokens required per aggregated unit.
+    min_units_per_topic : int, default=5
+        Minimum aggregated units per topic (determines upper bound).
+    min_step : int, default=10
+        Minimum gap between consecutive aggregation sizes.
+    override_min_topic_size : int, optional
+        If provided, use this as the minimum topic size instead of
+        computing it from topic_assignments. Useful for enforcing a
+        shared range across multiple models.
+
+    Returns
+    -------
+    Tuple[List[int], dict]
+        - Sorted list of aggregation sizes (integers).
+        - Metadata dict with 'mean_doc_length', 'min_topic_size',
+          'agg_min', 'agg_max', 'topic_sizes'.
+    """
+    import math
+
+    # Mean document length (in tokens)
+    doc_lengths = [len(tokens) for tokens in doc_tokens if tokens]
+    mean_doc_length = float(np.mean(doc_lengths)) if doc_lengths else 1.0
+
+    # Topic sizes (excluding outliers)
+    topic_sizes: Dict[int, int] = {}
+    for topic in topic_assignments:
+        if topic == -1:
+            continue
+        topic_sizes[topic] = topic_sizes.get(topic, 0) + 1
+
+    if not topic_sizes:
+        return [20], {'mean_doc_length': mean_doc_length, 'min_topic_size': 0,
+                       'agg_min': 20, 'agg_max': 20, 'topic_sizes': {}}
+
+    min_topic_size = override_min_topic_size if override_min_topic_size is not None else min(topic_sizes.values())
+
+    # Minimum aggregation: ceil(min_words / mean_doc_length)
+    agg_min = max(2, math.ceil(min_words_per_unit / mean_doc_length))
+
+    # Maximum aggregation: floor(min_topic_size / min_units_per_topic)
+    agg_max = max(agg_min, min_topic_size // min_units_per_topic)
+
+    if agg_min >= agg_max:
+        sizes = [agg_min]
+    else:
+        # Generate candidate points
+        raw_sizes = sorted(set(
+            int(round(v))
+            for v in np.linspace(agg_min, agg_max, n_points)
+        ))
+
+        # Filter by min_step: keep points with gap >= min_step from previous
+        sizes = [raw_sizes[0]]
+        for s in raw_sizes[1:]:
+            if s - sizes[-1] >= min_step:
+                sizes.append(s)
+        # Always include the max
+        if sizes[-1] != raw_sizes[-1]:
+            sizes.append(raw_sizes[-1])
+
+        # Fallback if too few points after filtering
+        if len(sizes) < 3 and agg_max - agg_min >= 2 * min_step:
+            mid = (agg_min + agg_max) // 2
+            sizes = sorted(set([agg_min, mid, agg_max]))
+
+    metadata = {
+        'mean_doc_length': float(mean_doc_length),
+        'min_topic_size': int(min_topic_size),
+        'agg_min': int(agg_min),
+        'agg_max': int(agg_max),
+        'topic_sizes': {int(k): int(v) for k, v in topic_sizes.items()},
+    }
+
+    return sizes, metadata
+
+
+# =============================================================================
+# MULTI-AGGREGATION EVALUATION
+# =============================================================================
+
+def evaluate_multi_aggregation(
+    doc_tokens: List[List[str]],
+    topic_assignments: List[int],
+    aggregation_sizes: List[int],
+    modes: Optional[List[str]] = None,
+    distance_type: str = 'both',
+    sample_size: int = 5000,
+    random_seed: Optional[int] = None,
+    verbose: bool = False
+) -> Dict[str, dict]:
+    """
+    Run topic distance evaluation across multiple aggregation sizes.
+
+    For each aggregation size, computes intra and/or inter aggregated
+    distances. Returns per-size and per-topic results suitable for
+    plotting the stabilization curve and inter-topic ranking tables.
+
+    Parameters
+    ----------
+    doc_tokens : List[List[str]]
+        Pre-tokenized documents.
+    topic_assignments : List[int]
+        Topic assignment per document (-1 = outliers, excluded).
+    aggregation_sizes : List[int]
+        List of aggregation sizes to evaluate.
+    modes : List[str], optional
+        Modes to evaluate. Default: ['intra_aggregated', 'inter_aggregated'].
+    distance_type : str, default='both'
+        Distance metric: 'js', 'labbe', or 'both'.
+    sample_size : int, default=5000
+        Maximum pairs to sample per topic.
+    random_seed : int, optional
+        Random seed for reproducibility.
+    verbose : bool, default=False
+        Print progress.
+
+    Returns
+    -------
+    dict
+        Structure: {
+            aggregation_size (int): {
+                mode (str): {
+                    'js': {'mean': ..., 'std': ..., 'per_topic': {...}},
+                    'labbe': {'mean': ..., 'std': ..., 'per_topic': {...}}
+                }
+            }
+        }
+    """
+    if modes is None:
+        modes = ['intra_aggregated', 'inter_aggregated']
+
+    results = {}
+    for agg_size in aggregation_sizes:
+        if verbose:
+            print(f"    Aggregation size = {agg_size}")
+        results[agg_size] = {}
+
+        for mode in modes:
+            result = evaluate_topic_distances(
+                doc_tokens,
+                topic_assignments,
+                mode=mode,
+                distance_type=distance_type,
+                aggregation_size=agg_size,
+                sample_size=sample_size,
+                random_seed=random_seed,
+                verbose=False
+            )
+            results[agg_size][mode] = result
+
+    return results
+
+
+# =============================================================================
+# TOPIC CENTROID DISTANCES (one-vs-rest, no sampling)
+# =============================================================================
+
+def compute_topic_centroid_distances(
+    doc_tokens: List[List[str]],
+    topic_assignments: List[int],
+    distance_type: str = 'both',
+) -> Dict[str, dict]:
+    """
+    Compute inter-topic distances by merging all docs per topic into one centroid.
+
+    For each topic, merges all its documents' tokens into a single Counter
+    (centroid), then merges all other topics' tokens into a rest Counter.
+    Computes Labbé and/or JS between (centroid, rest).
+
+    This gives maximum discrimination between topics — no sampling noise,
+    no aggregation size dependency.
+
+    Parameters
+    ----------
+    doc_tokens : List[List[str]]
+        Pre-tokenized documents.
+    topic_assignments : List[int]
+        Topic assignment per document (-1 = outliers, excluded).
+    distance_type : str, default='both'
+        'labbe', 'js', or 'both'.
+
+    Returns
+    -------
+    dict
+        Same structure as evaluate_topic_distances inter results:
+        {'labbe': {'mean': ..., 'std': ..., 'per_topic': {tid: {'mean_distance': d}}},
+         'js': {...}}
+    """
+    # Build per-topic centroids
+    topic_centroids: Dict[int, Counter] = {}
+    for tokens, topic in zip(doc_tokens, topic_assignments):
+        if topic == -1:
+            continue
+        if topic not in topic_centroids:
+            topic_centroids[topic] = Counter()
+        topic_centroids[topic].update(tokens)
+
+    if len(topic_centroids) < 2:
+        empty = {'mean': 0.0, 'std': 0.0, 'per_topic': {}, 'n_topics': len(topic_centroids)}
+        results = {}
+        if distance_type in ('labbe', 'both'):
+            results['labbe'] = empty.copy()
+        if distance_type in ('js', 'both'):
+            results['js'] = empty.copy()
+        return results
+
+    topic_ids = sorted(topic_centroids.keys())
+
+    # Total corpus centroid (for building rest)
+    total_centroid = Counter()
+    for c in topic_centroids.values():
+        total_centroid.update(c)
+
+    results = {}
+
+    for metric_name, compute_fn in [('labbe', _labbe_from_counts), ('js', _js_from_counts)]:
+        if distance_type not in (metric_name, 'both'):
+            continue
+
+        per_topic = {}
+        distances = []
+
+        for tid in topic_ids:
+            # rest = total - this topic
+            rest = total_centroid.copy()
+            rest.subtract(topic_centroids[tid])
+            # Remove zero/negative counts
+            rest = Counter({w: c for w, c in rest.items() if c > 0})
+
+            dist = compute_fn(topic_centroids[tid], rest)
+            per_topic[tid] = {'mean_distance': float(dist)}
+            distances.append(dist)
+
+        results[metric_name] = {
+            'mean': float(np.mean(distances)),
+            'std': float(np.std(distances)),
+            'per_topic': per_topic,
+            'n_topics': len(topic_ids),
+        }
+
+    return results
+
+
+# =============================================================================
+# χ²/n WORD × TOPIC INDEPENDENCE TEST
+# =============================================================================
+
+def compute_word_topic_chi2(
+    doc_tokens: List[List[str]],
+    topic_assignments: List[int],
+    min_word_freq: int = 5,
+) -> dict:
+    """
+    Compute χ²/n on a word × topic contingency table.
+
+    Measures how strongly word frequencies depend on topic assignment.
+    Higher χ²/n = topics capture more distinctive vocabulary.
+
+    Also computes per-topic contribution to χ², showing which topics
+    drive the departure from word-topic independence the most.
+
+    Parameters
+    ----------
+    doc_tokens : List[List[str]]
+        Pre-tokenized documents.
+    topic_assignments : List[int]
+        Topic assignment per document (-1 = outliers, excluded).
+    min_word_freq : int, default=5
+        Minimum total frequency for a word to be included in the table
+        (avoids sparse cells inflating χ²).
+
+    Returns
+    -------
+    dict
+        {
+            'chi2': float,
+            'n': int (total token count),
+            'chi2_over_n': float,
+            'p_value': float,
+            'dof': int,
+            'vocab_size': int (after filtering),
+            'n_topics': int,
+            'min_word_freq': int,
+            'per_topic_chi2': {topic_id: float},
+            'per_topic_chi2_pct': {topic_id: float},
+        }
+    """
+    from scipy.stats import chi2_contingency
+
+    # Build word counts per topic
+    topic_counters: Dict[int, Counter] = {}
+    for tokens, topic in zip(doc_tokens, topic_assignments):
+        if topic == -1:
+            continue
+        if topic not in topic_counters:
+            topic_counters[topic] = Counter()
+        topic_counters[topic].update(tokens)
+
+    if not topic_counters:
+        return {
+            'chi2': 0.0, 'n': 0, 'chi2_over_n': 0.0, 'p_value': 1.0,
+            'dof': 0, 'vocab_size': 0, 'n_topics': 0,
+            'min_word_freq': min_word_freq,
+            'per_topic_chi2': {}, 'per_topic_chi2_pct': {},
+        }
+
+    # Global vocabulary with minimum frequency filter
+    global_counts = Counter()
+    for counter in topic_counters.values():
+        global_counts.update(counter)
+
+    vocab = sorted(w for w, c in global_counts.items() if c >= min_word_freq)
+    vocab_index = {w: i for i, w in enumerate(vocab)}
+
+    topic_ids = sorted(topic_counters.keys())
+    n_vocab = len(vocab)
+    n_topics = len(topic_ids)
+
+    if n_vocab == 0 or n_topics < 2:
+        return {
+            'chi2': 0.0, 'n': 0, 'chi2_over_n': 0.0, 'p_value': 1.0,
+            'dof': 0, 'vocab_size': n_vocab, 'n_topics': n_topics,
+            'min_word_freq': min_word_freq,
+            'per_topic_chi2': {}, 'per_topic_chi2_pct': {},
+        }
+
+    # Build contingency table: rows = vocabulary, cols = topics
+    table = np.zeros((n_vocab, n_topics), dtype=np.float64)
+    for j, tid in enumerate(topic_ids):
+        counter = topic_counters[tid]
+        for word, idx in vocab_index.items():
+            table[idx, j] = counter.get(word, 0)
+
+    n_total = table.sum()
+
+    # Chi-squared test
+    chi2, p_value, dof, expected = chi2_contingency(table)
+
+    chi2_over_n = chi2 / n_total if n_total > 0 else 0.0
+
+    # Per-topic contribution: sum of (observed - expected)² / expected per column
+    cell_chi2 = (table - expected) ** 2 / np.where(expected > 0, expected, 1.0)
+
+    per_topic_chi2 = {}
+    per_topic_chi2_pct = {}
+    for j, tid in enumerate(topic_ids):
+        contribution = float(cell_chi2[:, j].sum())
+        per_topic_chi2[tid] = contribution
+        per_topic_chi2_pct[tid] = (contribution / chi2 * 100) if chi2 > 0 else 0.0
+
+    return {
+        'chi2': float(chi2),
+        'n': int(n_total),
+        'chi2_over_n': float(chi2_over_n),
+        'p_value': float(p_value),
+        'dof': int(dof),
+        'vocab_size': n_vocab,
+        'n_topics': n_topics,
+        'min_word_freq': min_word_freq,
+        'per_topic_chi2': per_topic_chi2,
+        'per_topic_chi2_pct': per_topic_chi2_pct,
+    }

@@ -11,6 +11,10 @@ from .sections import (
     generate_corpus_description,
     generate_run_description,
     generate_intra_topic_distance_section,
+    generate_topic_distance_4configs_section,
+    generate_aggregation_curve_section,
+    generate_inter_topic_ranking_section,
+    generate_word_topic_chi2_section,
 )
 from .markdown_report import generate_comparison_report
 from .latex_report import generate_latex_report
@@ -22,6 +26,10 @@ __all__ = [
     'generate_run_description',
     'generate_comparison_report',
     'generate_intra_topic_distance_section',
+    'generate_topic_distance_4configs_section',
+    'generate_aggregation_curve_section',
+    'generate_inter_topic_ranking_section',
+    'generate_word_topic_chi2_section',
     'generate_pdf_report',
     'generate_latex_report',
 ]

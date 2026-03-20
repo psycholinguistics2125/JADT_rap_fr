@@ -47,7 +47,7 @@ from utils.utils_evaluation import (
     create_topic_distribution_plot,
     create_artist_topics_heatmap,
     create_artist_specialization_plot,
-    create_biannual_js_plot,
+    create_annual_js_plot,
     create_year_topic_heatmap,
     print_evaluation_summary,
 )
@@ -638,9 +638,9 @@ def create_visualizations(results: dict, embeddings: np.ndarray, umap_embeddings
     # 7. Artist specialization plot (using shared utility)
     create_artist_specialization_plot(results['artist_separation'], run_dir)
 
-    # 8. Biannual JS divergence plot (using shared utility)
-    create_biannual_js_plot(results['temporal_separation'], run_dir,
-                            title="BERTopic - 2-Year Window JS Divergence")
+    # 8. Annual JS divergence plot (using shared utility)
+    create_annual_js_plot(results['temporal_separation'], run_dir,
+                          title="BERTopic - Annual JS Divergence")
 
     print("  All visualizations saved!")
 
