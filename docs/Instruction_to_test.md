@@ -128,7 +128,7 @@ Note down this folder path.
 ## Step 4: Generate the Comparison Report
 
 Now we compare all three models. We use:
-- `--spacy-model fr_core_news_lg` for tokenization (installed in prerequisites).
+- `--tokenizer spacy --spacy-model fr_core_news_lg` for tokenization (installed in prerequisites).
 - `--pdf-engine markdown` to avoid needing a LaTeX installation.
 - `--lang fr` for a French report.
 
@@ -139,6 +139,7 @@ python main_comparate_run.py \
     --bertopic-folder results/BERTopic/run_YYYYMMDD_HHMMSS_camembert \
     --lda-folder results/LDA/run_YYYYMMDD_HHMMSS_unigrams \
     --iramuteq-folder results/IRAMUTEQ/evaluation_YYYYMMDD_HHMMSS \
+    --tokenizer spacy \
     --spacy-model fr_core_news_lg \
     --pdf-engine markdown \
     --lang fr
@@ -152,7 +153,7 @@ python main_comparate_run.py \
    - **Q2:** Artist separation (Cramer's V, standardized residuals).
    - **Q3:** Temporal dynamics (variance, decade JS divergence).
    - **Q4:** Vocabulary overlap (Jaccard similarity, distinctiveness).
-   - **Q5:** Intra-topic distances (JS and Labbe distances using spaCy tokenization).
+   - **Q5:** Topic distances (4 configurations, multi-aggregation, centroid distances, chi2/n).
 4. Generates comparison visualizations (contingency heatmaps, temporal comparison, vocabulary comparison).
 5. Copies relevant figures from each model's run directory.
 6. Generates a Markdown report (`comparison_report.md`).
@@ -182,6 +183,39 @@ results/comparisons/comparison_20260127_151200/
     ├── contingency_bertopic_vs_lda.csv
     ├── contingency_bertopic_vs_iramuteq.csv
     └── contingency_lda_vs_iramuteq.csv
+```
+
+---
+
+## Step 5: Build the Interactive Website
+
+Once all three models and the comparison report are generated, you can build an interactive Dash website to explore the results:
+
+```bash
+python build_website.py \
+    --lda-folder "$LDA_DIR" \
+    --bertopic-folder "$BERTOPIC_DIR" \
+    --iramuteq-folder "$IRAMUTEQ_DIR" \
+    --comparison-folder "$COMPARISON_DIR" \
+    --output-dir website_output
+```
+
+This generates a self-contained `website_output/` directory with a pre-processed data bundle (`site_data.json`) and a multi-page Dash app. It includes individual model exploration pages (topic keywords, artist profiles, temporal evolution), cross-model comparisons (Sankey diagrams, contingency heatmaps, distance curves), and a FR/EN language toggle.
+
+To run the website locally:
+
+```bash
+cd website_output
+pip install -r requirements.txt
+python app.py
+# Open http://localhost:8050
+```
+
+Or with Docker:
+
+```bash
+cd website_output
+docker compose up --build
 ```
 
 ---
@@ -230,6 +264,7 @@ python main_comparate_run.py \
     --bertopic-folder "$BERTOPIC_DIR" \
     --lda-folder "$LDA_DIR" \
     --iramuteq-folder "$IRAMUTEQ_DIR" \
+    --tokenizer spacy \
     --spacy-model fr_core_news_lg \
     --pdf-engine markdown \
     --lang fr
@@ -237,10 +272,20 @@ python main_comparate_run.py \
 # Find the latest comparison
 COMPARISON_DIR=$(ls -td results/comparisons/comparison_* 2>/dev/null | head -1)
 echo ""
+echo "=== Step 5: Interactive website ==="
+python build_website.py \
+    --lda-folder "$LDA_DIR" \
+    --bertopic-folder "$BERTOPIC_DIR" \
+    --iramuteq-folder "$IRAMUTEQ_DIR" \
+    --comparison-folder "$COMPARISON_DIR" \
+    --output-dir website_output
+
+echo ""
 echo "=== Done! ==="
 echo "Comparison report: $COMPARISON_DIR/comparison_report.md"
 echo "PDF report:        $COMPARISON_DIR/comparison_report.pdf"
 echo "Metrics:           $COMPARISON_DIR/metrics.json"
+echo "Website:           cd website_output && python app.py"
 ```
 
 Save this as `run_test.sh` and execute with:
@@ -282,7 +327,7 @@ python -m spacy download fr_core_news_lg
 Or use NLTK tokenization instead (no spaCy needed):
 
 ```bash
-python main_comparate_run.py ... --spacy-model none
+python main_comparate_run.py ... --tokenizer nltk
 ```
 
 ### Memory issues with BERTopic

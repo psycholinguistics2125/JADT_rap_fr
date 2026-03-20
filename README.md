@@ -52,6 +52,7 @@ JADT_rap_fr/
 │   ├── bertopic_verses.ipynb
 │   ├── bertopic_verses_with_seed.ipynb
 │   ├── bunka.ipynb
+│   ├── draft.ipynb
 │   └── lda_songs.ipynb
 ├── docs/                                  # Documentation
 │   ├── TOPIC_MODELING_SCRIPTS.md          # Full CLI reference for all scripts
@@ -72,7 +73,8 @@ JADT_rap_fr/
 │       ├── artist_separation.py           # Q2: Cramer's V, residuals
 │       ├── temporal.py                    # Q3: temporal variance, JS divergence
 │       ├── vocabulary.py                  # Q4: Jaccard, distinctiveness
-│       ├── topic_distances.py             # Q5: Labbe, JS, WMD distances
+│       ├── tokenizers.py                  # SpaCy/NLTK/SimpleSpace tokenizers
+│       ├── topic_distances.py             # Q5: Labbe, JS distances, aggregation, chi2/n
 │       ├── visualization.py              # Comparison plots (Sankey, heatmaps)
 │       └── report/                        # Report generation package
 │           ├── __init__.py                # Re-exports public report functions
@@ -92,6 +94,9 @@ JADT_rap_fr/
 ├── script_main_clean_data.py              # Data preprocessing
 ├── script_main_create_verses_df.py        # Verse extraction
 ├── script_test_bertopic_parameter.py      # BERTopic parameter search
+├── script_collect_rapper_biography.py     # Collect artist biographies via API
+├── script_enrich_dataset.py              # Enrich dataset with metadata
+├── script_patch_failed_apis.py           # Retry failed API calls
 ├── test_with_sample.py                    # Quick validation test
 ├── config.yaml                            # Configuration file
 ├── requirements.txt                       # Python dependencies
@@ -137,7 +142,7 @@ python -m spacy download fr_core_news_md
 python -m spacy download fr_core_news_sm
 ```
 
-You can also skip spaCy entirely by passing `--spacy-model none` to use NLTK tokenization instead.
+You can also skip spaCy entirely by passing `--tokenizer nltk` (or `--tokenizer space` for simple whitespace tokenization).
 
 ### 4. (Optional) Install LaTeX for PDF reports
 
@@ -191,7 +196,7 @@ All outputs go to timestamped directories under `results/{METHOD}/`.
 | Q2 | Do models separate artists differently? | Cramer's V, standardized residuals |
 | Q3 | Do models capture the same temporal dynamics? | Temporal variance, decade JS divergence |
 | Q4 | Do models use different vocabularies? | Jaccard similarity, vocabulary distinctiveness |
-| Q5 | Are topics internally coherent? | Intra-topic JS distance, Labbe distance |
+| Q5 | Are topics internally coherent? | Intra/inter-topic distances (4 configs), multi-aggregation, centroid distances, chi2/n |
 
 ### Stage 3: Report Generation
 
@@ -209,7 +214,8 @@ The report generation code lives in `utils/comparaison_utils/report/` as a dedic
 |--------|---------|
 | `utils/utils_evaluation.py` | Shared evaluation metrics and plot functions used by all three model scripts |
 | `utils/comparaison_utils/` | Full comparison pipeline: data loading, statistical metrics, visualization, report generation |
-| `utils/comparaison_utils/topic_distances.py` | SpaCy/NLTK tokenizers + Labbe/JS/WMD distance implementations |
+| `utils/comparaison_utils/tokenizers.py` | SpaCy, NLTK, and SimpleSpace tokenizer classes |
+| `utils/comparaison_utils/topic_distances.py` | Labbe/JS distance implementations, multi-aggregation, centroid distances, chi2/n test |
 | `utils/comparaison_utils/report/` | Report generation package (Markdown, LaTeX, PDF) with French/English i18n |
 
 ---
@@ -301,9 +307,19 @@ Options:
   --lda-folder PATH       Path to LDA results folder (required)
   --bertopic-folder PATH  Path to BERTopic results folder (required)
   --iramuteq-folder PATH  Path to IRAMUTEQ results folder (required)
+  --iramuteq-original PATH  Path to original IRAMUTEQ run with profiles.csv
+  --output-dir PATH       Output directory (default: auto-generated timestamp)
+  --corpus PATH           Path to corpus CSV (default: data/20260123_filter_verses_lrfaf_corpus.csv)
+  --text-column COL       Column containing document text (default: lyrics_cleaned)
   --lang LANG             Report language: fr or en (default: fr)
   --pdf-engine ENGINE     PDF engine: latex or markdown (default: latex)
-  --spacy-model MODEL     Tokenizer: fr_core_news_sm/md/lg or none (default: lg)
+  --tokenizer TYPE        Tokenizer: spacy, nltk, or space (default: spacy)
+  --spacy-model MODEL     SpaCy model: fr_core_news_sm/md/lg (default: lg)
+  --aggregation-size N    Verses to aggregate for distance modes (default: 20)
+  --top-words N           Top words per topic for vocabulary analysis (default: 30)
+  --min-docs-artist N     Min documents per artist for analysis (default: 10)
+  --no-sankey             Skip Sankey diagram generation
+  --no-figures            Skip figure generation (faster, report only)
 ```
 
 ---

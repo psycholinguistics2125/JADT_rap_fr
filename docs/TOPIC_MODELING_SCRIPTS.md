@@ -483,27 +483,40 @@ Check the source code comments for detailed explanations of each metric and func
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `--lda-folder` | str | (auto-detect) | Path to LDA results folder |
-| `--bertopic-folder` | str | (auto-detect) | Path to BERTopic results folder |
-| `--iramuteq-folder` | str | (auto-detect) | Path to IRAMUTEQ results folder |
-| `--iramuteq-original` | str | (auto-detect) | Path to original IRAMUTEQ folder |
+| `--lda-folder` | str | (required) | Path to LDA results folder |
+| `--bertopic-folder` | str | (required) | Path to BERTopic results folder |
+| `--iramuteq-folder` | str | (required) | Path to IRAMUTEQ results folder |
+| `--iramuteq-original` | str | None | Path to original IRAMUTEQ folder with profiles.csv |
 | `--output-dir` | str | (auto-generate) | Output directory for comparison results |
 | `--corpus` | str | (default path) | Path to corpus CSV file |
 | `--text-column` | str | 'lyrics_cleaned' | Column name containing document text |
 | `--lang` | str | 'fr' | Report language: 'fr' (French) or 'en' (English) |
 | `--pdf-engine` | str | 'latex' | PDF generation engine (see below) |
-| `--spacy-model` | str | 'fr_core_news_lg' | Tokenizer for distance metrics (see below) |
+| `--tokenizer` | str | 'spacy' | Tokenizer backend: 'spacy', 'nltk', or 'space' (see below) |
+| `--spacy-model` | str | 'fr_core_news_lg' | SpaCy model (only when `--tokenizer spacy`) |
+| `--aggregation-size` | int | 20 | Number of verses to aggregate for aggregated distance modes |
+| `--top-words` | int | 30 | Number of top words per topic for vocabulary analysis |
+| `--min-docs-artist` | int | 10 | Minimum documents per artist for analysis |
+| `--no-sankey` | flag | False | Skip Sankey diagram generation (requires plotly) |
+| `--no-figures` | flag | False | Skip figure generation (faster, report only) |
 
 ### Tokenizer for Distance Metrics
 
-The script tokenizes all corpus documents **once** and reuses the tokens for each model's Labbé and Jensen-Shannon distance computations. Two tokenizer backends are available:
+The script tokenizes all corpus documents **once** and reuses the tokens for each model's Labbé and Jensen-Shannon distance computations. Three tokenizer backends are available, selected via `--tokenizer`:
 
-| Value | Backend | Lemmatization | Requirements | Best For |
-|-------|---------|---------------|--------------|----------|
-| `fr_core_news_lg` (default) | SpaCy | No (disabled) | `python -m spacy download fr_core_news_lg` | Accurate POS-aware tokenization |
-| `fr_core_news_md` | SpaCy | No (disabled) | `python -m spacy download fr_core_news_md` | Balanced speed/accuracy |
-| `fr_core_news_sm` | SpaCy | No (disabled) | `python -m spacy download fr_core_news_sm` | Fast, lower accuracy |
-| `none` | NLTK | No | `nltk` (punkt_tab, stopwords) | No spaCy dependency, simpler tokenization |
+| `--tokenizer` | Backend | Lemmatization | Requirements | Best For |
+|----------------|---------|---------------|--------------|----------|
+| `spacy` (default) | SpaCy | No (disabled) | `python -m spacy download fr_core_news_lg` | Accurate POS-aware tokenization |
+| `nltk` | NLTK | No | `nltk` (punkt_tab, stopwords) | No spaCy dependency, simpler tokenization |
+| `space` | SimpleSpace | No | None | Fastest, for testing (simple whitespace split) |
+
+When using `--tokenizer spacy`, you can additionally choose the model size via `--spacy-model`:
+
+| `--spacy-model` | Description |
+|------------------|-------------|
+| `fr_core_news_lg` (default) | Large model, best accuracy |
+| `fr_core_news_md` | Medium model, balanced speed/accuracy |
+| `fr_core_news_sm` | Small model, fastest |
 
 **SpaCy tokenizer features:**
 - No lemmatization (surface forms preserved, as in the LDA pipeline)
@@ -518,12 +531,20 @@ The script tokenizes all corpus documents **once** and reuses the tokens for eac
 - No lemmatization (surface forms only)
 - No spaCy dependency required
 
+**SimpleSpace tokenizer features:**
+- Fast whitespace-based tokenization with minimal regex for punctuation removal
+- No external dependency required
+- Best for quick testing runs
+
 ```bash
 # Install SpaCy model (recommended)
 python -m spacy download fr_core_news_lg
 
 # Or use NLTK fallback (no spaCy needed)
-python main_comparate_run.py --spacy-model none
+python main_comparate_run.py --tokenizer nltk
+
+# Or use simple space tokenizer (fastest, for testing)
+python main_comparate_run.py --tokenizer space
 ```
 
 ### PDF Generation Engines
@@ -572,16 +593,21 @@ python main_comparate_run.py --lang en
 python main_comparate_run.py --pdf-engine markdown
 
 # Use NLTK tokenizer (no spaCy dependency)
-python main_comparate_run.py --spacy-model none
+python main_comparate_run.py --tokenizer nltk
 
 # Use small spaCy model (faster)
-python main_comparate_run.py --spacy-model fr_core_news_sm
+python main_comparate_run.py --tokenizer spacy --spacy-model fr_core_news_sm
 
 # Full example with all options
 python main_comparate_run.py \
+    --lda-folder results/LDA/run_YYYYMMDD_HHMMSS_both \
+    --bertopic-folder results/BERTopic/run_YYYYMMDD_HHMMSS_camembert \
+    --iramuteq-folder results/IRAMUTEQ/evaluation_YYYYMMDD_HHMMSS \
     --lang fr \
     --pdf-engine latex \
+    --tokenizer spacy \
     --spacy-model fr_core_news_lg \
+    --aggregation-size 20 \
     --output-dir results/comparisons/my_comparison
 ```
 
@@ -618,9 +644,12 @@ The script computes several comparison metrics:
 - Jaccard similarity of topic vocabularies
 - Shared vs unique terms
 
-**Q5: Intra-topic Coherence**
-- Jensen-Shannon distance within topics
-- Labbé distance for lexical homogeneity
+**Q5: Topic Distance Analysis**
+- Intra/inter-topic distances in 4 configurations (intra/inter x paired/aggregated)
+- Multi-aggregation stabilization curves (distance vs aggregation size)
+- Centroid distances (one-vs-rest topic ranking)
+- Chi2/n word-topic independence test
+- Jensen-Shannon and Labbé distance metrics
 
 ### Report Sections
 
@@ -628,9 +657,10 @@ The generated report includes:
 
 1. **Corpus Description** - Dataset statistics and temporal coverage
 2. **Individual Model Descriptions** - Parameters and metrics for each model
-3. **Comparative Analysis** - Cross-model comparisons with statistical tests
-4. **Summary and Recommendations** - Key findings and best practices
-5. **Mathematical Appendix** - Formula definitions and methodological notes
+3. **Comparative Analysis** - Cross-model comparisons (Q1-Q4) and topic distance analysis (Q5: 4 configurations, aggregation curves, centroid ranking, chi2/n)
+4. **Summary and Recommendations** - Key findings and dynamic conclusions
+5. **References** - Full academic citations
+6. **Mathematical Appendix** - Formula definitions and methodological notes
 
 ---
 

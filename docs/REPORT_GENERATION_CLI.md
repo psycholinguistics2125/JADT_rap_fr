@@ -51,7 +51,7 @@ python main_comparate_run.py \
 | `--lang` | str | `fr` | Report language: `fr` (French) or `en` (English) |
 | `--pdf-engine` | str | `latex` | PDF generation engine: `latex` or `markdown` |
 | `--no-figures` | flag | `False` | Skip figure generation (faster, text-only report) |
-| `--include-sankey` | flag | `False` | Include Sankey flow diagrams (requires plotly) |
+| `--no-sankey` | flag | `False` | Skip Sankey diagram generation (requires plotly) |
 
 ### Output files
 
@@ -97,17 +97,21 @@ pdf_compiler.py      ← imports from latex_report
 
 ### Public API
 
-The package re-exports 7 public functions through `__init__.py`:
+The package re-exports 11 public functions through `__init__.py`:
 
 ```python
 from utils.comparaison_utils.report import (
-    copy_run_figures,                  # Copy model figures to comparison output
-    generate_corpus_description,       # Markdown section for corpus stats
-    generate_run_description,          # Markdown section for a single model
-    generate_intra_topic_distance_section,  # Distance metrics section
-    generate_comparison_report,        # Full Markdown report
-    generate_latex_report,             # Full LaTeX report
-    generate_pdf_report,               # PDF compilation
+    copy_run_figures,                        # Copy model figures to comparison output
+    generate_corpus_description,             # Markdown section for corpus stats
+    generate_run_description,                # Markdown section for a single model
+    generate_intra_topic_distance_section,   # Q5 legacy distance section
+    generate_topic_distance_4configs_section, # Q5 extended (intra/inter x paired/aggregated)
+    generate_aggregation_curve_section,      # Multi-aggregation stabilization
+    generate_inter_topic_ranking_section,    # Centroid distance ranking
+    generate_word_topic_chi2_section,        # Chi2/n word-topic independence test
+    generate_comparison_report,              # Full Markdown report
+    generate_latex_report,                   # Full LaTeX report
+    generate_pdf_report,                     # PDF compilation
 )
 ```
 
@@ -162,13 +166,17 @@ Utility functions for LaTeX output:
 
 ### `sections.py`
 
-Reusable report sections (~700 lines):
+Reusable report sections (~1000 lines):
 
 - `compute_topic_distribution_metrics(doc_assignments)` -- computes Gini, entropy, imbalance for topic distribution.
 - `copy_run_figures(run_dir, figures_dir, model_name)` -- copies model PNG files to the comparison figures directory.
 - `generate_corpus_description(df, figures_dir, lang)` -- corpus statistics section (document count, year range, artist count, decade breakdown).
 - `generate_run_description(data, title, model_type, ...)` -- individual model section (parameters, topic distribution, top words, metrics).
-- `generate_intra_topic_distance_section(distance_results, lang)` -- Q5 intra-topic distance section with JS and Labbe tables.
+- `generate_intra_topic_distance_section(distance_results, lang)` -- Q5 legacy intra-topic distance section with JS and Labbe tables.
+- `generate_topic_distance_4configs_section(results, lang)` -- Q5 extended: intra/inter x paired/aggregated (4 configurations).
+- `generate_aggregation_curve_section(results, lang)` -- multi-aggregation stabilization curves.
+- `generate_inter_topic_ranking_section(results, lang)` -- centroid distance ranking (one-vs-rest).
+- `generate_word_topic_chi2_section(results, lang)` -- chi2/n word-topic independence test.
 - `generate_distance_appendix(lang)` -- mathematical appendix with distance formula definitions.
 
 ### `markdown_report.py`
@@ -183,7 +191,7 @@ The main report generator (~450 lines). `generate_comparison_report(results, out
    - Q2: Artist separation (Cramer's V)
    - Q3: Temporal dynamics (variance, decade JS)
    - Q4: Vocabulary (Jaccard, distinctiveness)
-   - Q5: Intra-topic distance (JS, Labbe)
+   - Q5: Intra/inter-topic distance (4 configurations, aggregation curves, centroid ranking, chi2/n)
 5. **Section 4: Summary** -- key findings and recommendations.
 6. **Section 5: References** -- full academic citations.
 7. **Appendix** -- run details and mathematical formulas.
@@ -202,7 +210,11 @@ Internal helper functions:
 - `_generate_latex_corpus_section()` -- corpus statistics in LaTeX.
 - `_generate_latex_model_section()` -- individual model description.
 - `_generate_latex_comparison_section()` -- Q1-Q4 comparative analysis.
-- `_generate_latex_distance_section()` -- Q5 intra-topic distances.
+- `_generate_latex_distance_section()` -- Q5 legacy intra-topic distances.
+- `_generate_latex_distance_4configs_section()` -- Q5 extended (4 configurations).
+- `_generate_latex_aggregation_curve_section()` -- multi-aggregation stabilization.
+- `_generate_latex_inter_topic_ranking_section()` -- centroid distance ranking.
+- `_generate_latex_chi2_section()` -- chi2/n word-topic independence.
 - `_generate_latex_distance_appendix()` -- mathematical formula appendix.
 - `_get_imbalance_interp()`, `_get_entropy_interp()` -- threshold interpreters.
 
@@ -234,7 +246,8 @@ main_comparate_run.py
   │     └── generate_comparison_report(all_results, output_dir, figures_dir, lang)
   │           ├── generate_corpus_description()     → Section 1
   │           ├── generate_run_description() × 3    → Section 2
-  │           ├── Q1-Q5 tables and interpretations   → Section 3
+  │           ├── Q1-Q4 tables and interpretations   → Section 3
+  │           ├── Q5 distances (4 configs, aggregation, centroid, chi2/n) → Section 3
   │           ├── Summary + references               → Section 4-5
   │           └── generate_distance_appendix()       → Appendix
   │
@@ -285,9 +298,26 @@ results = {
         'bertopic_vs_lda': {'mean_jaccard': float, ...},
         ...
     },
-    'intra_topic_distances': {       # Q5 results
+    'intra_topic_distances': {       # Q5 legacy results
         'bertopic_js': {'mean': float, 'std': float, 'per_topic': dict},
         'bertopic_labbe': {'mean': float, 'std': float, 'per_topic': dict},
+        ...
+    },
+    'topic_distances_4configs': {    # Q5 extended (intra/inter x paired/aggregated)
+        'bertopic': {'intra_all_paired': {...}, 'inter_all_paired': {...},
+                     'intra_aggregated': {...}, 'inter_aggregated': {...}},
+        ...
+    },
+    'multi_aggregation': {           # Multi-aggregation stabilization curves
+        'bertopic': {size: {...}, ...},
+        ...
+    },
+    'centroid_distances': {          # Centroid distances (one-vs-rest)
+        'bertopic': {'per_topic': dict, 'mean': float},
+        ...
+    },
+    'word_topic_chi2': {             # Chi2/n word-topic independence
+        'bertopic': {'chi2': float, 'p': float, 'dof': int, 'chi2_n': float},
         ...
     },
 }
