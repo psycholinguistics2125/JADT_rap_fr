@@ -1,0 +1,66 @@
+{
+  "silhouette_metrics": {
+    "silhouette_umap": 0.2303297072649002,
+    "per_cluster_silhouette_umap": {
+      "0": 0.2572195529937744,
+      "1": 0.1676686406135559,
+      "2": 0.19001813232898712,
+      "3": 0.386853963136673,
+      "4": 0.13843953609466553,
+      "5": 0.41386178135871887,
+      "6": 0.2976238429546356,
+      "7": 0.21708513796329498,
+      "8": 0.2528756558895111,
+      "9": 0.1699928492307663,
+      "10": 0.15610173344612122,
+      "11": 0.16849198937416077,
+      "12": 0.15024639666080475,
+      "13": 0.1787670999765396,
+      "14": 0.17084798216819763,
+      "15": 0.26326364278793335,
+      "16": 0.15710985660552979,
+      "17": 0.12462577223777771,
+      "18": 0.435226708650589,
+      "19": 0.07380317151546478
+    }
+  },
+  "artist_metrics": {
+    "silhouette_by_artist": null,
+    "js_divergence": 0.5129007408405329,
+    "specialization": 0.24004701252771332,
+    "pct_specialists": 6.569343065693431,
+    "pct_moderate": 20.62043795620438,
+    "pct_generalists": 72.8102189781022,
+    "mean_dominant_ratio": 0.25758476893697513,
+    "mean_significant_topics": 6.686131386861314,
+    "mean_topic_concentration": 0.13904894102259283
+  },
+  "temporal_metrics": {
+    "mean_variance": 0.000769521520954799,
+    "decade_changes": {},
+    "biannual_changes": {},
+    "mean_biannual_js": null
+  },
+  "parameters": {
+    "embedding_model": "OrdalieTech/Solon-embeddings-large-0.1",
+    "embedding_key": "solon",
+    "clustering_algorithm": "kmeans",
+    "n_clusters": 20,
+    "hdbscan_params": null,
+    "agglomerative_params": null,
+    "umap_params": {
+      "n_neighbors": 15,
+      "n_components": 5,
+      "min_dist": 0.0,
+      "metric": "cosine",
+      "random_state": 42
+    },
+    "num_documents": 115805,
+    "num_words_per_topic": 30,
+    "timestamp": "20260706_220123",
+    "run_dir": "/home/robin/Code_repo/psycholinguistic2125/JADT_rap_fr/results/BERTopic/run_20260706_220123_solon",
+    "use_openai": true,
+    "include_keybert": false,
+    "interactive_html": true
+  }
+}
