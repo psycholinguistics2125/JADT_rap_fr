@@ -172,10 +172,27 @@ def _decade_js_chart(lang):
     if not has_data:
         return None
 
+    def _normalize_changes(changes):
+        """Return [(decade_label, js_value)] from either a dict
+        {transition: js} or a list of {decade/period, js_*} entries."""
+        pairs = []
+        if isinstance(changes, dict):
+            for label, val in changes.items():
+                if isinstance(val, dict):
+                    val = val.get("js_divergence", val.get("js_div", val.get("mean_js", 0)))
+                pairs.append((str(label), val if isinstance(val, (int, float)) else 0))
+        elif isinstance(changes, list):
+            for entry in changes:
+                if not isinstance(entry, dict):
+                    continue
+                label = str(entry.get("decade", entry.get("period", "")))
+                js_val = entry.get("js_divergence", entry.get("js_div", entry.get("mean_js", 0)))
+                pairs.append((label, js_val))
+        return pairs
+
     all_decades = set()
     for mk, changes in decades_per_model.items():
-        for entry in changes:
-            decade_label = entry.get("decade", entry.get("period", ""))
+        for decade_label, _ in _normalize_changes(changes):
             if decade_label:
                 all_decades.add(str(decade_label))
     all_decades = sorted(all_decades)
@@ -188,11 +205,7 @@ def _decade_js_chart(lang):
         display = MODEL_DISPLAY[mk]
         changes = decades_per_model.get(mk, [])
 
-        decade_js = {}
-        for entry in changes:
-            decade_label = str(entry.get("decade", entry.get("period", "")))
-            js_val = entry.get("js_divergence", entry.get("js_div", entry.get("mean_js", 0)))
-            decade_js[decade_label] = js_val
+        decade_js = {label: js for label, js in _normalize_changes(changes)}
 
         vals = [decade_js.get(d, 0) for d in all_decades]
         fig.add_trace(go.Bar(

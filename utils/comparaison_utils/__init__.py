@@ -99,6 +99,22 @@ from .topic_distances import (
     compute_word_topic_chi2,
 )
 
+# Q5-sem: Semantic (embedding-space) topic distances + separation ratio
+from .topic_distances_semantic import (
+    load_verse_embeddings,
+    get_embedding_path,
+    aggregate_embeddings,
+    evaluate_semantic_topic_distances,
+    evaluate_semantic_multi_aggregation,
+    compute_semantic_centroid_distances,
+    compute_separation_ratios,
+)
+
+# D5: Cross-embedding cluster quality
+from .cluster_quality import (
+    compute_cluster_quality,
+)
+
 # Visualization
 from .visualization import (
     create_sankey_diagram,
@@ -169,6 +185,16 @@ __all__ = [
     'evaluate_multi_aggregation',
     'compute_topic_centroid_distances',
     'compute_word_topic_chi2',
+    # Q5-sem: Semantic topic distances
+    'load_verse_embeddings',
+    'get_embedding_path',
+    'aggregate_embeddings',
+    'evaluate_semantic_topic_distances',
+    'evaluate_semantic_multi_aggregation',
+    'compute_semantic_centroid_distances',
+    'compute_separation_ratios',
+    # D5: Cross-embedding cluster quality
+    'compute_cluster_quality',
     # Visualization
     'create_sankey_diagram',
     'create_agreement_heatmap',

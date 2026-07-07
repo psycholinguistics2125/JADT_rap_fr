@@ -158,6 +158,153 @@ def _aggregation_sr_table(comparison, lang):
 
 
 # ---------------------------------------------------------------------------
+# D3-sem: semantic (embedding-space) evaluation
+# ---------------------------------------------------------------------------
+
+def _semantic_ch_chart(sem, lang):
+    """Grouped bar chart: Calinski-Harabasz by evaluation space, per model."""
+    spaces = sem.get("eval_spaces", [])
+    per_space = sem.get("per_space", {})
+    if not spaces:
+        return _empty_fig(lang, height=400)
+
+    fig = go.Figure()
+    for mk in MODEL_KEYS:
+        display = MODEL_DISPLAY[mk]
+        ys = [per_space.get(sp, {}).get(mk, {}).get("cluster_quality", {}).get("calinski_harabasz", 0)
+              for sp in spaces]
+        fig.add_trace(go.Bar(
+            x=spaces, y=ys, name=display,
+            marker_color=MODEL_COLORS.get(display, "#999"),
+            hovertemplate=f"{display}<br>%{{x}}<br>CH = %{{y:.1f}}<extra></extra>",
+        ))
+
+    clustered = sem.get("bertopic_clustered_space")
+    if clustered in spaces:
+        fig.add_annotation(
+            x=clustered, y=1.0, yref="paper",
+            text="⟳ " + t("semantic_circular_tag", lang), showarrow=False,
+            font=dict(size=10, color="#b00"), yanchor="bottom",
+        )
+
+    fig.update_layout(
+        title=t("semantic_ch_chart_title", lang),
+        barmode="group", plot_bgcolor="white", height=420,
+        margin=dict(l=70, r=20, t=50, b=50),
+        xaxis_title=t("semantic_space", lang),
+        yaxis_title="Calinski-Harabasz",
+        yaxis=dict(gridcolor="#eee", rangemode="tozero"),
+        legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
+    )
+    return fig
+
+
+def _semantic_cluster_quality_table(sem, lang):
+    spaces = sem.get("eval_spaces", [])
+    per_space = sem.get("per_space", {})
+    if not spaces:
+        return html.P(t("no_data", lang), className="text-muted")
+
+    space_col = t("semantic_space", lang)
+    model_col = t("model_comparison", lang)
+    rows = []
+    for sp in spaces:
+        circ = per_space.get(sp, {}).get("bertopic", {}).get("cluster_quality", {}).get("circular")
+        sp_label = sp + (f" (⟳ {t('semantic_circular_tag', lang)})" if circ else "")
+        for mk in MODEL_KEYS:
+            cq = per_space.get(sp, {}).get(mk, {}).get("cluster_quality", {})
+            rows.append({
+                space_col: sp_label if mk == "bertopic" else "",
+                model_col: MODEL_DISPLAY[mk],
+                t("silhouette_cosine", lang): f"{cq.get('silhouette_cosine', 0):.4f}",
+                t("calinski_harabasz", lang): f"{cq.get('calinski_harabasz', 0):,.1f}",
+                t("davies_bouldin", lang): f"{cq.get('davies_bouldin', 0):.4f}",
+            })
+
+    columns = [{"name": c, "id": c} for c in rows[0].keys()]
+    return dash_table.DataTable(
+        data=rows, columns=columns,
+        style_table={"overflowX": "auto"},
+        style_header={"backgroundColor": "#343a40", "color": "white",
+                      "fontWeight": "bold", "textAlign": "center"},
+        style_cell={"textAlign": "center", "padding": "8px 12px", "fontSize": "0.85rem"},
+        style_data_conditional=[
+            {"if": {"filter_query": "{" + model_col + "} = BERTopic"},
+             "backgroundColor": "#eef3fb"},
+        ],
+    )
+
+
+def _semantic_sr_table(sem, lang):
+    spaces = sem.get("eval_spaces", [])
+    per_space = sem.get("per_space", {})
+    sizes = sem.get("agg_sizes", [])
+    if not spaces or not sizes:
+        return html.P(t("no_data", lang), className="text-muted")
+
+    space_col = t("semantic_space", lang)
+    model_col = t("model_comparison", lang)
+
+    def sr_row(space_label, mk, sr_dict):
+        row = {space_col: space_label, model_col: MODEL_DISPLAY[mk]}
+        for n in sizes:
+            row[f"SR n={n}"] = f"{sr_dict.get(str(n), 0):.3f}" if sr_dict else "—"
+        return row
+
+    rows = []
+    for sp in spaces:
+        circ = per_space.get(sp, {}).get("bertopic", {}).get("cluster_quality", {}).get("circular")
+        sp_label = sp + (f" (⟳ {t('semantic_circular_tag', lang)})" if circ else "")
+        for mk in MODEL_KEYS:
+            sr = per_space.get(sp, {}).get(mk, {}).get("separation_ratios", {})
+            rows.append(sr_row(sp_label if mk == "bertopic" else "", mk, sr))
+
+    # Lexical SR reference block
+    lex = sem.get("lexical_separation_ratios", {})
+    if lex:
+        for i, mk in enumerate(MODEL_KEYS):
+            rows.append(sr_row(t("semantic_lexical_sr", lang) if i == 0 else "", mk, lex.get(mk, {})))
+
+    columns = [{"name": c, "id": c} for c in rows[0].keys()]
+    return dash_table.DataTable(
+        data=rows, columns=columns,
+        style_table={"overflowX": "auto"},
+        style_header={"backgroundColor": "#343a40", "color": "white",
+                      "fontWeight": "bold", "textAlign": "center"},
+        style_cell={"textAlign": "center", "padding": "8px 12px", "fontSize": "0.85rem"},
+        style_data_conditional=[
+            {"if": {"filter_query": "{" + model_col + "} = BERTopic"},
+             "backgroundColor": "#eef3fb"},
+        ],
+    )
+
+
+def _semantic_section(comparison, lang):
+    sem = comparison.get("semantic_evaluation", {})
+    if not sem or not sem.get("per_space"):
+        return None
+
+    return html.Div([
+        html.H4(t("semantic_title", lang), className="section-header"),
+        html.P(t("semantic_intro", lang), className="mb-3",
+               style={"lineHeight": "1.6"}),
+        html.Div(
+            dcc.Graph(figure=_semantic_ch_chart(sem, lang),
+                      config={"displayModeBar": True, "displaylogo": False}),
+            className="chart-container",
+        ),
+        html.H5(t("semantic_cluster_quality_title", lang), className="mt-4"),
+        html.Div(_semantic_cluster_quality_table(sem, lang), className="chart-container"),
+        html.P(t("semantic_cluster_quality_caption", lang),
+               className="text-muted mt-2", style={"fontStyle": "italic"}),
+        html.H5(t("semantic_sr_title", lang), className="mt-4"),
+        html.Div(_semantic_sr_table(sem, lang), className="chart-container"),
+        html.P(t("semantic_sr_caption", lang),
+               className="text-muted mt-2", style={"fontStyle": "italic"}),
+    ])
+
+
+# ---------------------------------------------------------------------------
 # Layout builder
 # ---------------------------------------------------------------------------
 
@@ -195,6 +342,9 @@ def build_layout(lang):
         ),
     ])
 
+    # Section 2b: D3-sem semantic (embedding-space) evaluation
+    semantic_section = _semantic_section(comparison, lang)
+
     # Section 3: Labbe vs JS explanation
     explanation = html.Div([
         html.H4(t("labbe_vs_js_title", lang), className="section-header"),
@@ -223,6 +373,7 @@ def build_layout(lang):
             html.H2(t("distances", lang), className="section-header"),
             agg_section,
             sr_section,
+            *( [semantic_section] if semantic_section is not None else [] ),
             explanation,
             footer,
         ],

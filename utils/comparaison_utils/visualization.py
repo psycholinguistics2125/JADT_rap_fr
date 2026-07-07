@@ -289,28 +289,40 @@ def create_aggregation_curve_plot(
     multi_agg_results: dict,
     output_path: str,
     model_names: list = None,
+    metric_key: str = 'labbe',
+    metric_label: str = None,
 ):
     """
-    Plot aggregation size vs mean Labbé distance (intra and inter).
+    Plot aggregation size vs mean distance (intra and inter).
 
     Creates a 2-panel figure:
-    - Left: intra-topic Labbé distance (homogeneity) — lower is better
-    - Right: inter-topic Labbé distance (separation) — higher is better
+    - Left: intra-topic distance (homogeneity) — lower is better
+    - Right: inter-topic distance (separation) — higher is better
 
-    One line per model, all on the same axes for direct comparison.
+    One line per model, all on the same axes for direct comparison. Works for
+    both the lexical suite (metric_key='labbe') and the semantic suite
+    (metric_key='cosine'), which share the same result structure.
 
     Parameters
     ----------
     multi_agg_results : dict
-        {model_name: {agg_size: {mode: {'labbe': {'mean': ..., 'std': ...}}}}}
-        Output from evaluate_multi_aggregation() for each model.
+        {model_name: {agg_size: {mode: {metric_key: {'mean': ..., 'std': ...}}}}}
+        Output from evaluate_multi_aggregation() / evaluate_semantic_multi_aggregation().
     output_path : str
         Path to save PNG.
     model_names : list, optional
         Model names in display order. Default: sorted keys.
+    metric_key : str, default='labbe'
+        Which metric to read from each mode dict ('labbe', 'js', or 'cosine').
+    metric_label : str, optional
+        Human-readable axis label. Defaults to a capitalized metric_key.
     """
     if model_names is None:
         model_names = sorted(multi_agg_results.keys())
+
+    if metric_label is None:
+        metric_label = {'labbe': 'Labbé', 'js': 'Jensen-Shannon',
+                        'cosine': 'Cosine'}.get(metric_key, metric_key.capitalize())
 
     fig, (ax_intra, ax_inter) = plt.subplots(1, 2, figsize=(14, 6))
 
@@ -323,11 +335,11 @@ def create_aggregation_curve_plot(
         color = MODEL_COLORS.get(model, '#333333')
         marker = MODEL_MARKERS.get(model, 'o')
 
-        # Intra-aggregated Labbé
+        # Intra-aggregated distance
         intra_means = []
         intra_stds = []
         for agg in agg_sizes:
-            intra = model_data[agg].get('intra_aggregated', {}).get('labbe', {})
+            intra = model_data[agg].get('intra_aggregated', {}).get(metric_key, {})
             intra_means.append(intra.get('mean', 0))
             intra_stds.append(intra.get('std', 0))
 
@@ -341,11 +353,11 @@ def create_aggregation_curve_plot(
                               intra_means + intra_stds,
                               color=color, alpha=0.15)
 
-        # Inter-aggregated Labbé
+        # Inter-aggregated distance
         inter_means = []
         inter_stds = []
         for agg in agg_sizes:
-            inter = model_data[agg].get('inter_aggregated', {}).get('labbe', {})
+            inter = model_data[agg].get('inter_aggregated', {}).get(metric_key, {})
             inter_means.append(inter.get('mean', 0))
             inter_stds.append(inter.get('std', 0))
 
@@ -360,18 +372,18 @@ def create_aggregation_curve_plot(
                               color=color, alpha=0.15)
 
     ax_intra.set_xlabel('Aggregation size (documents)')
-    ax_intra.set_ylabel('Mean Labbé distance')
+    ax_intra.set_ylabel(f'Mean {metric_label} distance')
     ax_intra.set_title('Intra-topic (homogeneity)')
     ax_intra.legend()
     ax_intra.grid(True, alpha=0.3)
 
     ax_inter.set_xlabel('Aggregation size (documents)')
-    ax_inter.set_ylabel('Mean Labbé distance')
+    ax_inter.set_ylabel(f'Mean {metric_label} distance')
     ax_inter.set_title('Inter-topic (separation)')
     ax_inter.legend()
     ax_inter.grid(True, alpha=0.3)
 
-    fig.suptitle('Labbé Distance Stabilization by Aggregation Size',
+    fig.suptitle(f'{metric_label} Distance Stabilization by Aggregation Size',
                  fontsize=13, fontweight='bold')
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')

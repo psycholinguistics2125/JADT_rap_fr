@@ -676,6 +676,127 @@ def generate_word_topic_chi2_section(
 
 
 # =============================================================================
+# Q5-sem / D5: SEMANTIC (EMBEDDING-SPACE) EVALUATION SECTION
+# =============================================================================
+
+def generate_semantic_evaluation_section(
+    semantic_eval: dict,
+    lang: str = 'fr',
+) -> str:
+    """Markdown section for the semantic (embedding-space) counterpart of Q5.
+
+    Renders, per evaluation embedding space: the cosine aggregation-curve figure,
+    a cluster-quality table (Calinski-Harabasz, cosine silhouette, Davies-Bouldin),
+    and the separation-ratio SR = inter/intra at the largest aggregation size —
+    alongside the lexical (Labbé) SR for symmetry. The circular (aligned) space
+    for BERTopic is flagged, not hidden.
+
+    Parameters
+    ----------
+    semantic_eval : dict
+        The in-memory ``semantic_eval`` object from compute_semantic_evaluation.
+    lang : str
+        'fr' (default) or 'en'.
+    """
+    if not semantic_eval or not semantic_eval.get('per_space'):
+        return ""
+
+    fr = (lang == 'fr')
+    models = ['bertopic', 'lda', 'iramuteq']
+    sizes = semantic_eval.get('agg_sizes', [])
+    clustered = semantic_eval.get('bertopic_clustered_space')
+    lex_sr = semantic_eval.get('lexical_separation_ratios', {})
+    last = sizes[-1] if sizes else None
+
+    if fr:
+        md = "\n### Q5-sem — Séparation sémantique (espace d'embeddings)\n\n"
+        md += (
+            "Contrepartie de la Q5 lexicale dans l'espace des embeddings de phrases : "
+            "mêmes tailles d'agrégation, même échantillonnage de paires (graine 42), "
+            "la distance cosinus remplaçant la distance de Labbé. Ces métriques sont "
+            "**alignées par construction** avec les méthodes à base d'embeddings — tout "
+            "comme le χ²/n l'est avec le critère de Reinert — et sont rapportées par "
+            "souci de transparence, non comme arbitre de la qualité globale. "
+            "Non-circularité : chaque partition est évaluée dans des espaces "
+            "d'embeddings *différents* de celui sur lequel BERTopic a été entraîné"
+            + (f" (« {clustered} »)." if clustered else ".") + "\n\n"
+        )
+        cq_caption = ("Qualité de clustering (indices internes). Silhouette cosinus sur "
+                      "échantillon stratifié ; Calinski-Harabasz et Davies-Bouldin sur "
+                      "la matrice complète.")
+        sr_caption = ("Ratio de séparation SR = inter/intra (agrégation n=%s). "
+                      "SR > 1 : distances entre classes supérieures aux distances "
+                      "intra-classe." % last)
+    else:
+        md = "\n### Q5-sem — Semantic separation (embedding space)\n\n"
+        md += (
+            "Embedding-space counterpart of the lexical Q5: same aggregation sizes, "
+            "same pair sampling (seed 42), with cosine distance replacing Labbé "
+            "distance. These metrics are **aligned by construction** with "
+            "embedding-based methods — exactly as χ²/n is aligned with Reinert's "
+            "criterion — and are reported for transparency, not as an arbiter of "
+            "overall quality. Non-circularity: each partition is evaluated in "
+            "embedding spaces *other* than the one BERTopic was trained on"
+            + (f" ('{clustered}')." if clustered else ".") + "\n\n"
+        )
+        cq_caption = ("Cluster quality (internal indices). Cosine silhouette on a "
+                      "stratified sample; Calinski-Harabasz and Davies-Bouldin on the "
+                      "full matrix.")
+        sr_caption = ("Separation ratio SR = inter/intra (aggregation n=%s). "
+                      "SR > 1: between-class distances exceed within-class distances."
+                      % last)
+
+    if semantic_eval.get('skipped_eval_spaces'):
+        skipped = ', '.join(semantic_eval['skipped_eval_spaces'])
+        md += (f"> {'Espaces ignorés (cache manquant)' if fr else 'Skipped spaces (missing cache)'}: "
+               f"{skipped}\n\n")
+
+    # Lexical SR reference table (one row per model, columns = aggregation sizes)
+    if lex_sr and sizes:
+        md += f"**{'SR lexical (Labbé)' if fr else 'Lexical SR (Labbé)'}**\n\n"
+        md += "| Model | " + " | ".join(f"n={s}" for s in sizes) + " |\n"
+        md += "|-------|" + "|".join(["------"] * len(sizes)) + "|\n"
+        for m in models:
+            row = lex_sr.get(m, {})
+            vals = " | ".join(f"{row.get(s, 0):.4f}" for s in sizes)
+            md += f"| {m.upper()} | {vals} |\n"
+        md += "\n"
+
+    for space in semantic_eval.get('eval_spaces', []):
+        sr = semantic_eval['per_space'][space]
+        circ = (space == clustered)
+        tag = (" — **circulaire pour BERTopic**" if fr else " — **circular for BERTopic**") if circ else ""
+        md += f"\n#### {'Espace' if fr else 'Space'} : `{space}`{tag}\n\n"
+
+        md += f"![Semantic aggregation curve — {space}](figures/aggregation_curve_semantic_{space}.png)\n\n"
+
+        # Cluster-quality table
+        md += f"*{cq_caption}*\n\n"
+        md += ("| Model | Silhouette (cos) | Calinski-Harabasz | Davies-Bouldin |\n"
+               "|-------|------------------|-------------------|----------------|\n")
+        for m in models:
+            cq = sr['cluster_quality'].get(m, {})
+            md += (f"| {m.upper()} "
+                   f"| {cq.get('silhouette_cosine', 0):.4f} "
+                   f"| {cq.get('calinski_harabasz', 0):,.1f} "
+                   f"| {cq.get('davies_bouldin', 0):.4f} |\n")
+        md += "\n"
+
+        # Semantic SR table
+        if sizes:
+            md += f"*{sr_caption}*\n\n"
+            md += "| Model | " + " | ".join(f"n={s}" for s in sizes) + " |\n"
+            md += "|-------|" + "|".join(["------"] * len(sizes)) + "|\n"
+            for m in models:
+                row = sr['separation_ratios'].get(m, {})
+                vals = " | ".join(f"{row.get(s, 0):.4f}" for s in sizes)
+                md += f"| {m.upper()} | {vals} |\n"
+            md += "\n"
+
+    return md
+
+
+# =============================================================================
 # CORPUS DESCRIPTION
 # =============================================================================
 

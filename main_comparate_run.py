@@ -54,6 +54,12 @@ from utils.comparaison_utils import (
     compute_full_vocab_jaccard,
     compute_cross_model_full_vocab_jaccard,
     build_topic_labels,
+    # Q5-sem: Semantic (embedding-space) topic distances + cluster quality
+    load_verse_embeddings,
+    evaluate_semantic_multi_aggregation,
+    compute_semantic_centroid_distances,
+    compute_separation_ratios,
+    compute_cluster_quality,
     # Visualizations
     create_sankey_diagram,
     create_agreement_heatmap,
@@ -168,6 +174,28 @@ Examples:
         dest='aggregation_size',
         help='Number of verses to aggregate for aggregated distance modes (default: 20)'
     )
+    # Q5-sem / D5: Semantic (embedding-space) evaluation
+    parser.add_argument(
+        '--semantic-eval-spaces', type=str, default='e5,camembert,solon',
+        dest='semantic_eval_spaces',
+        help='Comma-separated embedding backends to evaluate semantic Q5 / cluster '
+             'quality in (default: e5,camembert,solon). Missing caches are skipped.'
+    )
+    parser.add_argument(
+        '--bertopic-embedding-key', type=str, default=None,
+        dest='bertopic_embedding_key',
+        help='Embedding key BERTopic clustered on (for the non-circularity flag). '
+             'Auto-detected from the BERTopic run metrics.json if omitted.'
+    )
+    parser.add_argument(
+        '--semantic-silhouette-sample', type=int, default=10000,
+        dest='semantic_silhouette_sample',
+        help='Stratified sample size for the (O(n^2)) cosine silhouette (default: 10000)'
+    )
+    parser.add_argument(
+        '--no-semantic', action='store_true',
+        help='Skip the semantic (embedding-space) Q5 / cluster-quality evaluation'
+    )
 
     return parser.parse_args()
 
@@ -193,6 +221,114 @@ def validate_folders(args):
         original_path = Path(args.iramuteq_original)
         if not original_path.exists():
             raise FileNotFoundError(f"IRAMUTEQ original folder not found: {args.iramuteq_original}")
+
+
+def _detect_bertopic_embedding_key(bertopic_folder: str) -> str:
+    """Read the embedding key BERTopic clustered on from its run metrics.json."""
+    try:
+        with open(Path(bertopic_folder) / 'metrics.json', encoding='utf-8') as f:
+            params = json.load(f).get('parameters', {})
+        return params.get('embedding_key')
+    except Exception:
+        return None
+
+
+def compute_semantic_evaluation(args, verse_indices, labels_per_model, agg_sizes,
+                                lexical_multi_agg):
+    """Semantic (embedding-space) counterpart to Q5 + cross-embedding cluster quality.
+
+    Mirrors the lexical Q5: for each evaluation embedding space, computes cosine
+    intra/inter aggregated distances (same data-driven `agg_sizes`, seed=42),
+    the SR = inter/intra separation ratio, one-vs-rest centroid distances, and
+    internal cluster-validity indices (Calinski-Harabasz, cosine silhouette on a
+    stratified sample, Davies-Bouldin). Non-circularity is flagged per space.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+    verse_indices : np.ndarray
+        Corpus `original_index` per aligned row (indexes the embedding caches).
+    labels_per_model : dict[str, np.ndarray]
+        Partition label per aligned row, for 'bertopic'/'lda'/'iramuteq'.
+    agg_sizes : list[int]
+        The shared, data-driven aggregation grid used by the lexical curve.
+    lexical_multi_agg : dict
+        Lexical multi-aggregation results (to also emit lexical SR for symmetry).
+    """
+    eval_spaces = [s.strip() for s in args.semantic_eval_spaces.split(',') if s.strip()]
+    bertopic_key = args.bertopic_embedding_key or _detect_bertopic_embedding_key(
+        args.bertopic_folder)
+
+    verse_indices = np.asarray(verse_indices)
+
+    semantic_eval = {
+        'eval_spaces': [],
+        'requested_eval_spaces': eval_spaces,
+        'skipped_eval_spaces': [],
+        'bertopic_clustered_space': bertopic_key,
+        'agg_sizes': list(agg_sizes) if agg_sizes else [],
+        'silhouette_sample_size': args.semantic_silhouette_sample,
+        'seed': 42,
+        'per_space': {},
+        # Lexical SR (Labbé) so lexical and semantic sides carry the same column
+        'lexical_separation_ratios': {
+            model: compute_separation_ratios(data, metric_key='labbe')
+            for model, data in (lexical_multi_agg or {}).items()
+        },
+    }
+
+    if not agg_sizes:
+        print("    No aggregation grid available; skipping semantic Q5.")
+        return semantic_eval
+
+    for space in eval_spaces:
+        try:
+            embeddings = load_verse_embeddings(space)
+        except FileNotFoundError as exc:
+            print(f"    [skip] {space}: {exc}")
+            semantic_eval['skipped_eval_spaces'].append(space)
+            continue
+
+        # Guard: verse indices must address rows of this cache.
+        if verse_indices.max(initial=-1) >= len(embeddings):
+            print(f"    [skip] {space}: cache has {len(embeddings)} rows but "
+                  f"max original_index is {verse_indices.max()} — misaligned.")
+            semantic_eval['skipped_eval_spaces'].append(space)
+            continue
+
+        print(f"    Eval space '{space}' ({embeddings.shape})"
+              f"{'  [aligned/circular for BERTopic]' if space == bertopic_key else ''}")
+
+        space_result = {'multi_agg': {}, 'separation_ratios': {},
+                        'centroid': {}, 'cluster_quality': {}}
+
+        for model, labels in labels_per_model.items():
+            emb_sub = embeddings[verse_indices]
+            # Semantic Q5 curve (mirror lexical: sample_size=1000, seed=42)
+            multi_agg = evaluate_semantic_multi_aggregation(
+                emb_sub, labels, aggregation_sizes=agg_sizes,
+                sample_size=1000, random_seed=42, verbose=False)
+            space_result['multi_agg'][model] = multi_agg
+            space_result['separation_ratios'][model] = compute_separation_ratios(
+                multi_agg, metric_key='cosine')
+            space_result['centroid'][model] = compute_semantic_centroid_distances(
+                emb_sub, labels)
+            space_result['cluster_quality'][model] = compute_cluster_quality(
+                emb_sub, labels,
+                sample_size=args.semantic_silhouette_sample, seed=42,
+                clustered_space=(bertopic_key if model == 'bertopic' else None),
+                eval_space=space)
+
+            cq = space_result['cluster_quality'][model]
+            sr = space_result['separation_ratios'][model]
+            sr_max = sr.get(agg_sizes[-1], 0.0) if sr else 0.0
+            print(f"      {model.upper()}: silhouette={cq['silhouette_cosine']:.4f}, "
+                  f"CH={cq['calinski_harabasz']:.1f}, SR@{agg_sizes[-1]}={sr_max:.4f}")
+
+        semantic_eval['per_space'][space] = space_result
+        semantic_eval['eval_spaces'].append(space)
+
+    return semantic_eval
 
 
 def main():
@@ -510,6 +646,7 @@ def main():
     # Q5 Feature: Multi-aggregation stabilization curve
     multi_agg_results = {}
     agg_metadata = None
+    agg_sizes = []
 
     if model_token_cache:
         print("\n[*] Computing aggregation stabilization curve...")
@@ -639,6 +776,26 @@ def main():
         else:
             print("    Lemmatized variant not available (requires SpaCy tokenizer)")
 
+    # Q5-sem / D5: Semantic (embedding-space) evaluation
+    # Mirrors the lexical Q5 with cosine distance in sentence-embedding space,
+    # plus cross-embedding cluster quality. Non-circular by construction: a
+    # BERTopic partition is flagged where it is evaluated in its own space.
+    semantic_eval = {}
+    if not args.no_semantic:
+        print("\n[*] Computing Q5-sem: Semantic topic distances + cluster quality...")
+        if 'original_index' in bertopic_df.columns:
+            verse_indices = bertopic_df['original_index'].to_numpy()
+            labels_per_model = {
+                'bertopic': bertopic_df['topic'].to_numpy(),
+                'lda': lda_df['topic'].to_numpy(),
+                'iramuteq': iramuteq_df['topic'].to_numpy(),
+            }
+            semantic_eval = compute_semantic_evaluation(
+                args, verse_indices, labels_per_model,
+                agg_sizes, multi_agg_results)
+        else:
+            print("    No original_index on aligned rows; skipping semantic evaluation.")
+
     # Generate visualizations
     if not args.no_figures:
         print("\n[*] Generating visualizations...")
@@ -719,6 +876,16 @@ def main():
             )
             print("    Saved: aggregation_curve.png")
 
+        # Q5-sem Feature: Semantic aggregation stabilization curve (one per space)
+        for space, space_result in semantic_eval.get('per_space', {}).items():
+            create_aggregation_curve_plot(
+                space_result['multi_agg'],
+                str(figures_dir / f'aggregation_curve_semantic_{space}.png'),
+                metric_key='cosine',
+                metric_label=f'Cosine ({space})',
+            )
+            print(f"    Saved: aggregation_curve_semantic_{space}.png")
+
         # Q5 Feature: Inter-topic separation ranking bar charts
         for model in ['bertopic', 'lda', 'iramuteq']:
             centroid_data = centroid_results.get(model, {})
@@ -750,6 +917,7 @@ def main():
         'full_vocab_jaccard': full_vocab_jaccard,  # Full vocabulary Jaccard per model
         'cross_model_jaccard': cross_model_jaccard,  # Cross-model full-vocab Jaccard
         'agg_metadata': agg_metadata,  # Aggregation range metadata
+        'semantic_eval': semantic_eval,  # Q5-sem + cross-embedding cluster quality
     }
 
     # Generate markdown report
@@ -788,6 +956,44 @@ def main():
         print("    For LaTeX engine: ensure xelatex or pdflatex is installed")
         print("    For markdown engine: pip install pypandoc")
         pdf_path = None
+
+    # Build a compact, JSON-friendly summary of the semantic evaluation
+    # (the full per-topic structure stays in-memory for the report only).
+    def _semantic_summary(sem):
+        if not sem or not sem.get('per_space'):
+            return {}
+        models = ['bertopic', 'lda', 'iramuteq']
+        sizes = sem.get('agg_sizes', [])
+        out = {
+            'eval_spaces': sem.get('eval_spaces', []),
+            'skipped_eval_spaces': sem.get('skipped_eval_spaces', []),
+            'bertopic_clustered_space': sem.get('bertopic_clustered_space'),
+            'agg_sizes': sizes,
+            'silhouette_sample_size': sem.get('silhouette_sample_size'),
+            'lexical_separation_ratios': {
+                m: {str(k): v for k, v in sem.get('lexical_separation_ratios', {})
+                    .get(m, {}).items()}
+                for m in models if m in sem.get('lexical_separation_ratios', {})
+            },
+            'per_space': {},
+        }
+        for space, sr in sem['per_space'].items():
+            out['per_space'][space] = {}
+            for m in models:
+                ma = sr['multi_agg'].get(m, {})
+                out['per_space'][space][m] = {
+                    'cluster_quality': sr['cluster_quality'].get(m, {}),
+                    'separation_ratios': {str(k): v for k, v
+                                          in sr['separation_ratios'].get(m, {}).items()},
+                    'intra_cosine_means': [
+                        ma.get(a, {}).get('intra_aggregated', {}).get('cosine', {}).get('mean', 0)
+                        for a in sizes],
+                    'inter_cosine_means': [
+                        ma.get(a, {}).get('inter_aggregated', {}).get('cosine', {}).get('mean', 0)
+                        for a in sizes],
+                    'centroid_cosine_mean': sr['centroid'].get(m, {}).get('cosine', {}).get('mean', 0),
+                }
+        return out
 
     # Save metrics JSON
     print("\n[*] Saving metrics JSON...")
@@ -907,6 +1113,8 @@ def main():
             for variant, variant_data in chi2_results.items()
             if variant_data
         },
+        # Q5-sem / D5: Semantic evaluation (compact summary)
+        'semantic_evaluation': _semantic_summary(semantic_eval),
     }
 
     metrics_path = output_dir / 'metrics.json'

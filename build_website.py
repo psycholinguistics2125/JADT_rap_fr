@@ -353,6 +353,8 @@ def load_comparison_data(folder: Path) -> dict:
         },
         "multi_aggregation": cmp_raw.get("multi_aggregation", {}),
         "chi2_results": cmp_raw.get("chi2_results", {}),
+        # Q5-sem / D3-sem: semantic (embedding-space) evaluation + cluster quality
+        "semantic_evaluation": cmp_raw.get("semantic_evaluation", {}),
     }
 
     data_dir = folder / "data"

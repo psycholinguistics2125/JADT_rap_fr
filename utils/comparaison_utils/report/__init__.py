@@ -15,6 +15,7 @@ from .sections import (
     generate_aggregation_curve_section,
     generate_inter_topic_ranking_section,
     generate_word_topic_chi2_section,
+    generate_semantic_evaluation_section,
 )
 from .markdown_report import generate_comparison_report
 from .latex_report import generate_latex_report
@@ -30,6 +31,7 @@ __all__ = [
     'generate_aggregation_curve_section',
     'generate_inter_topic_ranking_section',
     'generate_word_topic_chi2_section',
+    'generate_semantic_evaluation_section',
     'generate_pdf_report',
     'generate_latex_report',
 ]

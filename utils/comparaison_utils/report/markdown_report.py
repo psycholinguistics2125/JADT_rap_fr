@@ -18,6 +18,7 @@ from .sections import (
     generate_aggregation_curve_section,
     generate_inter_topic_ranking_section,
     generate_word_topic_chi2_section,
+    generate_semantic_evaluation_section,
 )
 
 
@@ -505,6 +506,11 @@ def generate_comparison_report(results: dict, output_dir: str, figures_dir: str 
             topic_labels_per_model=topic_labels_per_model,
             lang=lang
         )
+
+    # Q5-sem / D5: Semantic (embedding-space) evaluation
+    semantic_eval = results.get('semantic_eval', {})
+    if semantic_eval and semantic_eval.get('per_space'):
+        md += generate_semantic_evaluation_section(semantic_eval, lang=lang)
 
     # Section 4: Summary — built from actual computed results
     md += f"\n## {t('summary_title')}\n\n"

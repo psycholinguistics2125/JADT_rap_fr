@@ -75,7 +75,9 @@ os.makedirs(EMBEDDINGS_DIR, exist_ok=True)
 EMBEDDING_MODELS = {
     'camembert': 'dangvantuan/sentence-camembert-base',
     'e5': 'intfloat/multilingual-e5-base',
-    'mpnet': 'sentence-transformers/all-mpnet-base-v2',
+    'mpnet': 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2',
+    'solon': 'OrdalieTech/Solon-embeddings-large-0.1'
+    #sentence-transformers/all-mpnet-base-v2',
 }
 
 # Default UMAP parameters
@@ -898,7 +900,7 @@ if __name__ == "__main__":
 
     # Model selection
     parser.add_argument('--embedding', type=str, default='camembert',
-                        choices=['camembert', 'e5', 'mpnet'],
+                        choices=['camembert', 'e5', 'mpnet', 'solon'],
                         help='Embedding model to use')
     parser.add_argument('--compute-embeddings', action='store_true',
                         help='Compute embeddings (otherwise load from disk)')

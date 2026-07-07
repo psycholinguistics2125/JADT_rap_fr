@@ -37,15 +37,15 @@ def create_navbar(lang="fr"):
                                         t("artists", lang), href="/compare-artists"
                                     ),
                                     dbc.DropdownMenuItem(
-                                        t("temporal", lang), href="/compare-temporal"
+                                        t("distances", lang),
+                                        href="/compare-distances",
                                     ),
                                     dbc.DropdownMenuItem(
                                         t("vocabulary", lang),
                                         href="/compare-vocabulary",
                                     ),
                                     dbc.DropdownMenuItem(
-                                        t("distances", lang),
-                                        href="/compare-distances",
+                                        t("temporal", lang), href="/compare-temporal"
                                     ),
                                 ],
                                 label=t("comparison", lang),
