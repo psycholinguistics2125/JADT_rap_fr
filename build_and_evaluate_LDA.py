@@ -30,7 +30,8 @@ from gensim.models.phrases import Phrases, Phraser
 from sklearn.metrics import silhouette_score
 from sklearn.decomposition import PCA
 
-# Import shared evaluation utilities
+# Import shared preprocessing / evaluation utilities
+from utils.utils_preprocessing import deduplicate_documents
 from utils.utils_evaluation import (
     compute_artist_separation,
     compute_temporal_separation,
@@ -94,6 +95,23 @@ ADDITIONAL_STOPWORDS = {
     # Lemmatization artifacts (from analysis of bad topics)
     'fai', 'taire', 'laisse', 'attend', 'entend', 'ouer', 'luire',
     '-ce', 'pler', 'ider', 'b\'_soin', 'v\'_nu', 'p\'_tit', 'sai',
+    # English words (extended - very common in French rap)
+    'the', 'of', 'it', 'to', 'my', 'is', 'and', 'you', 'me', 'we',
+    'in', 'on', 'for', 'with', 'that', 'this', 'be', 'are', 'was',
+    'bitch', 'money', 'no', 'all', 'girl', 'get', 'real', 'what',
+    'boy', 'big', 'weed', 'do', 'one', 'bad', 'go', 'up', 'so',
+    'life', 'love', 'high', 'fuck', 'nigga', 'game', 'shit',
+    'out', 'got', 'from', 'way', 'new', 'like', 'let', 'know',
+    'back', 'man', 'hood', 'gang', 'cash', 'boss', 'gun', 'smoke',
+    'flow', 'beat', 'rap', 'mic', 'dj', 'club', 'party',
+}
+
+# Thematic CONTENT words that were previously removed "from analysis of bad topics".
+# Per Antoniak (2022, "Topic Modeling for the People"), aggressively deleting content
+# words distorts topics and hides real themes, so these are NO LONGER removed by
+# default. They are preserved here so the older, more aggressive behaviour can be
+# reproduced exactly via --legacy-stopwords (see get_stopwords()).
+LEGACY_CONTENT_STOPWORDS = {
     # Too common verbs (extended)
     'aller', 'venir', 'mettre', 'prendre', 'donner', 'laisser',
     'passer', 'rester', 'tenir', 'sortir', 'partir', 'arriver',
@@ -108,18 +126,20 @@ ADDITIONAL_STOPWORDS = {
     'jamais', 'toujours', 'petit', 'fois', 'juste', 'encore',
     'heure', 'grand', 'soir', 'nuit', 'main', 'maintenant',
     'personn', 'déjà', 'devant', 'fort', 'bel', 'tour', 'porte', 'femme',
-    # English words (extended - very common in French rap)
-    'the', 'of', 'it', 'to', 'my', 'is', 'and', 'you', 'me', 'we',
-    'in', 'on', 'for', 'with', 'that', 'this', 'be', 'are', 'was',
-    'bitch', 'money', 'no', 'all', 'girl', 'get', 'real', 'what',
-    'boy', 'big', 'weed', 'do', 'one', 'bad', 'go', 'up', 'so',
-    'life', 'love', 'high', 'fuck', 'nigga', 'game', 'shit',
-    'out', 'got', 'from', 'way', 'new', 'like', 'let', 'know',
-    'back', 'man', 'hood', 'gang', 'cash', 'boss', 'gun', 'smoke',
-    'flow', 'beat', 'rap', 'mic', 'dj', 'club', 'party',
 }
 
+# Default (light) stopword set — keeps most words, removes only function words,
+# fillers/interjections, lemmatization artifacts and cross-language noise.
 ALL_STOPWORDS = FRENCH_STOPWORDS | ADDITIONAL_STOPWORDS
+
+
+def get_stopwords(legacy: bool = False) -> set:
+    """Return the active stopword set.
+
+    legacy=True reproduces the old aggressive behaviour by also removing the
+    thematic content words in LEGACY_CONTENT_STOPWORDS.
+    """
+    return ALL_STOPWORDS | LEGACY_CONTENT_STOPWORDS if legacy else ALL_STOPWORDS
 
 
 def load_data(path: str, sample_size: int = None) -> pd.DataFrame:
@@ -138,11 +158,14 @@ def load_data(path: str, sample_size: int = None) -> pd.DataFrame:
     return df
 
 
-def tokenize_simple(text: str, min_word_len: int = 2) -> list:
+def tokenize_simple(text: str, min_word_len: int = 2, stopwords: set = None) -> list:
     """
     Simple tokenization without lemmatization.
     Better for slang/verlan in French rap.
     """
+    if stopwords is None:
+        stopwords = ALL_STOPWORDS
+
     if pd.isna(text) or not isinstance(text, str):
         return []
 
@@ -164,26 +187,37 @@ def tokenize_simple(text: str, min_word_len: int = 2) -> list:
         # Remove leading/trailing punctuation
         token = token.strip("'-")
         if (len(token) >= min_word_len and
-            token not in ALL_STOPWORDS and
+            token not in stopwords and
             not token.isdigit()):
             filtered.append(token)
 
     return filtered
 
 
-def get_corpus_path(base_dir: str, ngram_mode: str) -> str:
-    """Get the corpus path for a specific n-gram mode."""
-    return os.path.join(base_dir, f'corpus_{ngram_mode}.pkl')
+def get_corpus_path(base_dir: str, ngram_mode: str,
+                    dedup: bool = True, legacy_stopwords: bool = False) -> str:
+    """Get the corpus cache path for a given n-gram mode + preprocessing settings.
+
+    The dedup / stopword settings are encoded in the filename so that changing
+    them never silently reuses a cache built with different preprocessing.
+    """
+    suffix = '_dedup' if dedup else '_nodedup'
+    if legacy_stopwords:
+        suffix += '_legacy'
+    return os.path.join(base_dir, f'corpus_{ngram_mode}{suffix}.pkl')
 
 
 def create_corpus(df: pd.DataFrame, text_column: str = 'lyrics_cleaned',
                   min_word_len: int = 2, min_doc_freq: int = 5,
-                  max_doc_freq_ratio: float = 0.3,
+                  max_doc_freq_ratio: float = 0.5,
                   use_ngrams: str = 'both',
                   ngram_min_count: int = 10,
                   ngram_threshold: int = 50,
                   save_path: str = None,
-                  keep_all_the_document: bool = True) -> tuple:
+                  keep_all_the_document: bool = True,
+                  legacy_stopwords: bool = False,
+                  dedup: bool = True,
+                  dedup_method: str = 'exact') -> tuple:
     """
     Create corpus for LDA from dataframe.
 
@@ -196,13 +230,32 @@ def create_corpus(df: pd.DataFrame, text_column: str = 'lyrics_cleaned',
             - 'ngrams_only': bigrams + trigrams (no unigrams)
             - 'bigram_only': only bigrams (no unigrams, no trigrams)
             - 'trigram_only': only trigrams (no unigrams, no bigrams)
+        legacy_stopwords: if True, also remove thematic content words (old behaviour).
+        dedup: if True, remove duplicate documents before tokenization.
+        dedup_method: 'exact' (default) or 'minhash' (near-duplicates, needs datasketch).
 
-    Returns: (texts, dictionary, corpus, df_filtered)
+    Returns: (texts, dictionary, corpus, df_filtered, dedup_stats)
     """
     print("\n" + "="*60)
     print("PREPROCESSING CORPUS")
     print("="*60)
     print(f"N-gram mode: {use_ngrams}")
+
+    # Active stopword set (light by default; aggressive if legacy_stopwords)
+    stopwords = get_stopwords(legacy_stopwords)
+    print(f"Stopword mode: {'legacy (aggressive)' if legacy_stopwords else 'light (default)'} "
+          f"({len(stopwords)} stopwords)")
+
+    # Deduplication (Antoniak 2022: check duplicates first — rap repeats choruses/hooks)
+    df = df.reset_index(drop=True)
+    dedup_stats = {'method': None, 'n_before': len(df), 'n_after': len(df), 'n_removed': 0}
+    if dedup:
+        df, dedup_stats = deduplicate_documents(df, text_column=text_column, method=dedup_method)
+        print(f"Deduplication ({dedup_method}): removed {dedup_stats['n_removed']} / "
+              f"kept {dedup_stats['n_after']} of {dedup_stats['n_before']} documents")
+        source_positions = df['source_position'].tolist()
+    else:
+        source_positions = list(range(len(df)))
 
     # Simple tokenization (no spaCy, no lemmatization)
     print(f"Tokenizing {len(df)} documents (no lemmatization, preserving slang)...")
@@ -212,7 +265,7 @@ def create_corpus(df: pd.DataFrame, text_column: str = 'lyrics_cleaned',
     valid_indices = []
 
     for idx, text in enumerate(raw_texts):
-        tokens = tokenize_simple(text, min_word_len)
+        tokens = tokenize_simple(text, min_word_len, stopwords=stopwords)
         if keep_all_the_document or len(tokens) >= 3:
             texts.append(tokens)
             valid_indices.append(idx)
@@ -220,8 +273,10 @@ def create_corpus(df: pd.DataFrame, text_column: str = 'lyrics_cleaned',
             print(f"  Processed {idx + 1}/{len(raw_texts)} documents...")
 
     df_filtered = df.iloc[valid_indices].copy()
-    # Store original indices before resetting
-    df_filtered['original_index'] = valid_indices
+    # original_index maps back to the row position in the full input corpus (pre-dedup)
+    df_filtered['original_index'] = [source_positions[i] for i in valid_indices]
+    if 'source_position' in df_filtered.columns:
+        df_filtered = df_filtered.drop(columns=['source_position'])
     df_filtered = df_filtered.reset_index(drop=True)
     print(f"Documents after filtering: {len(texts)}")
 
@@ -293,7 +348,7 @@ def create_corpus(df: pd.DataFrame, text_column: str = 'lyrics_cleaned',
         dictionary.save(save_path.replace('.pkl', '.dict'))
         print("Corpus saved!")
 
-    return texts, dictionary, corpus, df_filtered
+    return texts, dictionary, corpus, df_filtered, dedup_stats
 
 
 def load_corpus(corpus_path: str) -> tuple:
@@ -306,17 +361,131 @@ def load_corpus(corpus_path: str) -> tuple:
     dictionary = corpora.Dictionary.load(dict_path)
 
     print(f"Loaded {len(corpus_data['corpus'])} documents, vocabulary size: {len(dictionary)}")
-    return corpus_data['texts'], dictionary, corpus_data['corpus'], corpus_data['df_filtered']
+    dedup_stats = {'method': 'cached', 'n_before': None,
+                   'n_after': len(corpus_data['corpus']), 'n_removed': None}
+    return (corpus_data['texts'], dictionary, corpus_data['corpus'],
+            corpus_data['df_filtered'], dedup_stats)
 
 
-def train_lda(corpus, dictionary, num_topics: int = 20,
+class LdaBackend:
+    """Backend-agnostic wrapper around a trained LDA model.
+
+    Hides the API differences between gensim (online variational Bayes) and
+    tomotopy (collapsed Gibbs sampling) so the rest of the pipeline is uniform.
+    """
+
+    def __init__(self, backend, model, num_topics, doc_map=None):
+        self.backend = backend
+        self.model = model
+        self.num_topics = num_topics
+        # tomotopy only: maps text index -> index into model.docs, or None (empty doc)
+        self._doc_map = doc_map
+
+    def show_topic(self, topic_id, topn=30):
+        """Return [(word, prob), ...] for a topic."""
+        if self.backend == 'tomotopy':
+            return [(w, float(p)) for w, p in self.model.get_topic_words(topic_id, top_n=topn)]
+        return [(w, float(p)) for w, p in self.model.show_topic(topic_id, topn)]
+
+    def top_words_per_topic(self, topn=20):
+        """List of word-lists per topic (for CoherenceModel(topics=...))."""
+        return [[w for w, _ in self.show_topic(t, topn)] for t in range(self.num_topics)]
+
+    def alpha_vector(self):
+        """The (possibly optimized) doc-topic Dirichlet prior as a list."""
+        if self.backend == 'tomotopy':
+            return [float(a) for a in self.model.alpha]
+        return [float(x) for x in np.atleast_1d(self.model.alpha)]
+
+    def get_doc_topics(self, corpus):
+        """Return (doc_topics [N x K], dominant_topics [N]) aligned to corpus order."""
+        n = len(corpus)
+        doc_topics = np.zeros((n, self.num_topics))
+        if self.backend == 'tomotopy':
+            # tomotopy's docs[i] random access is unreliable; iterate into a list once.
+            docs = list(self.model.docs)
+            for i in range(n):
+                j = self._doc_map[i] if self._doc_map is not None else i
+                if j is None:
+                    # Empty document (no in-vocab tokens): uninformative uniform row
+                    doc_topics[i, :] = 1.0 / self.num_topics
+                else:
+                    doc_topics[i, :] = np.asarray(docs[j].get_topic_dist())
+        else:
+            for i, doc in enumerate(corpus):
+                for topic_id, prob in self.model.get_document_topics(doc, minimum_probability=0):
+                    doc_topics[i, topic_id] = prob
+        dominant_topics = doc_topics.argmax(axis=1)
+        return doc_topics, dominant_topics
+
+    def save(self, path):
+        self.model.save(path)
+
+    def prepare_pyldavis(self, corpus, dictionary):
+        """Build a pyLDAvis PreparedData object for either backend."""
+        if self.backend == 'tomotopy':
+            import pyLDAvis
+            mdl = self.model
+            topic_term = np.stack([mdl.get_topic_word_dist(k) for k in range(self.num_topics)])
+            doc_topic = np.stack([np.asarray(d.get_topic_dist()) for d in mdl.docs])
+            doc_lengths = np.array([len(d.words) for d in mdl.docs])
+            vocab = list(mdl.used_vocabs)
+            term_freq = np.array(mdl.used_vocab_freq)
+            return pyLDAvis.prepare(topic_term, doc_topic, doc_lengths, vocab, term_freq,
+                                    sort_topics=False)
+        import pyLDAvis.gensim_models
+        return pyLDAvis.gensim_models.prepare(self.model, corpus, dictionary)
+
+
+def train_lda(corpus, dictionary, texts=None, num_topics: int = 20,
               alpha: str = 'symmetric', eta: str = 'auto',
               passes: int = 15, iterations: int = 400,
-              random_state: int = 42, chunksize: int = 2000) -> LdaModel:
-    """Train LDA model with given parameters."""
-    print(f"\nTraining LDA with {num_topics} topics...")
-    print(f"Parameters: alpha={alpha}, eta={eta}, passes={passes}, iterations={iterations}")
+              random_state: int = 42, chunksize: int = 2000,
+              backend: str = 'tomotopy', gibbs_iterations: int = 1000,
+              optim_interval: int = 10) -> 'LdaBackend':
+    """Train an LDA model and return a backend-agnostic LdaBackend.
 
+    backend='tomotopy' (default): collapsed Gibbs sampling (Antoniak 2022). The
+        doc-topic prior alpha is TUNED via hyperparameter optimization
+        (optim_interval); the word-topic prior eta is left fixed (not optimized).
+    backend='gensim': online variational Bayes (reproduces the old runs).
+    """
+    print(f"\nTraining LDA [{backend}] with {num_topics} topics...")
+
+    if backend == 'tomotopy':
+        import tomotopy as tp
+
+        if texts is None:
+            raise ValueError("backend='tomotopy' requires `texts` (token lists).")
+
+        # alpha is optimized during sampling; eta stays fixed & symmetric.
+        mdl = tp.LDAModel(k=num_topics, alpha=0.1, eta=0.01,
+                          tw=tp.TermWeight.ONE, seed=random_state,
+                          min_cf=0, min_df=0, rm_top=0)
+        mdl.optim_interval = optim_interval
+
+        vocab = dictionary.token2id
+        doc_map = []
+        tp_idx = 0
+        for toks in texts:
+            ftoks = [t for t in toks if t in vocab]
+            if ftoks:
+                mdl.add_doc(ftoks)
+                doc_map.append(tp_idx)
+                tp_idx += 1
+            else:
+                doc_map.append(None)
+
+        print(f"Parameters: alpha=optimized (init 0.1), eta=0.01 (fixed), "
+              f"gibbs_iterations={gibbs_iterations}, optim_interval={optim_interval}")
+        print(f"  Added {tp_idx} non-empty documents; running Gibbs sampling...")
+        mdl.train(gibbs_iterations, workers=1)
+        print(f"  Learned alpha (first 5 topics): "
+              f"{[round(float(a), 4) for a in mdl.alpha[:5]]}")
+        return LdaBackend('tomotopy', mdl, num_topics, doc_map=doc_map)
+
+    # gensim variational-inference backend (legacy)
+    print(f"Parameters: alpha={alpha}, eta={eta}, passes={passes}, iterations={iterations}")
     lda_model = LdaModel(
         corpus=corpus,
         id2word=dictionary,
@@ -329,26 +498,26 @@ def train_lda(corpus, dictionary, num_topics: int = 20,
         chunksize=chunksize,
         per_word_topics=True
     )
+    return LdaBackend('gensim', lda_model, num_topics)
 
-    return lda_model
 
-
-def compute_coherence_metrics(lda_model, texts, dictionary, corpus) -> dict:
-    """Compute various coherence metrics."""
+def compute_coherence_metrics(adapter, texts, dictionary, corpus) -> dict:
+    """Compute various coherence metrics (backend-agnostic via topic word lists)."""
     print("\nComputing coherence metrics...")
 
     metrics = {}
+    topics_words = adapter.top_words_per_topic(20)
 
     # C_V coherence (best for human interpretability)
     coherence_cv = CoherenceModel(
-        model=lda_model, texts=texts, dictionary=dictionary, coherence='c_v'
+        topics=topics_words, texts=texts, dictionary=dictionary, coherence='c_v'
     )
     metrics['coherence_cv'] = coherence_cv.get_coherence()
     print(f"  C_V Coherence: {metrics['coherence_cv']:.4f}")
 
     # U_Mass coherence (faster, corpus-based)
     coherence_umass = CoherenceModel(
-        model=lda_model, corpus=corpus, dictionary=dictionary, coherence='u_mass'
+        topics=topics_words, corpus=corpus, dictionary=dictionary, coherence='u_mass'
     )
     metrics['coherence_umass'] = coherence_umass.get_coherence()
     print(f"  U_Mass Coherence: {metrics['coherence_umass']:.4f}")
@@ -359,34 +528,15 @@ def compute_coherence_metrics(lda_model, texts, dictionary, corpus) -> dict:
     return metrics
 
 
-def get_document_topics(lda_model, corpus) -> tuple:
-    """
-    Get topic distribution and dominant topic for each document.
-    Returns: (doc_topics array, dominant_topics array)
-    """
-    num_topics = lda_model.num_topics
-    doc_topics = np.zeros((len(corpus), num_topics))
-
-    for i, doc in enumerate(corpus):
-        topic_dist = lda_model.get_document_topics(doc, minimum_probability=0)
-        for topic_id, prob in topic_dist:
-            doc_topics[i, topic_id] = prob
-
-    # Get dominant topic for each document (most probable)
-    dominant_topics = doc_topics.argmax(axis=1)
-
-    return doc_topics, dominant_topics
-
-
-def display_topics(lda_model, num_words: int = 30) -> dict:
+def display_topics(adapter, num_words: int = 30) -> dict:
     """Display and return topic descriptions."""
     print("\n" + "="*60)
     print("TOPIC DESCRIPTIONS")
     print("="*60)
 
     topics = {}
-    for topic_id in range(lda_model.num_topics):
-        topic_words = lda_model.show_topic(topic_id, num_words)
+    for topic_id in range(adapter.num_topics):
+        topic_words = adapter.show_topic(topic_id, num_words)
         words = [word for word, prob in topic_words]
         probs = [float(prob) for word, prob in topic_words]
 
@@ -401,14 +551,13 @@ def display_topics(lda_model, num_words: int = 30) -> dict:
     return topics
 
 
-def create_pyldavis(lda_model, corpus, dictionary, run_dir: str):
+def create_pyldavis(adapter, corpus, dictionary, run_dir: str):
     """Create pyLDAvis HTML visualization."""
     print("\nCreating pyLDAvis visualization...")
     try:
         import pyLDAvis
-        import pyLDAvis.gensim_models
 
-        vis_data = pyLDAvis.gensim_models.prepare(lda_model, corpus, dictionary)
+        vis_data = adapter.prepare_pyldavis(corpus, dictionary)
         vis_path = os.path.join(run_dir, 'pyldavis.html')
         pyLDAvis.save_html(vis_data, vis_path)
         print(f"  pyLDAvis saved to: {vis_path}")
@@ -418,7 +567,7 @@ def create_pyldavis(lda_model, corpus, dictionary, run_dir: str):
         return None
 
 
-def save_results(results: dict, lda_model, dictionary, corpus, df, doc_topics, dominant_topics,
+def save_results(results: dict, adapter, dictionary, corpus, df, doc_topics, dominant_topics,
                  run_dir: str, create_pyldavis_html: bool = True):
     """Save all results and model artifacts to run directory."""
     print("\n" + "="*60)
@@ -427,7 +576,7 @@ def save_results(results: dict, lda_model, dictionary, corpus, df, doc_topics, d
 
     # Save model
     model_path = os.path.join(run_dir, "lda_model")
-    lda_model.save(model_path)
+    adapter.save(model_path)
     print(f"  Model saved to: {model_path}")
 
     # Save dictionary
@@ -503,7 +652,7 @@ def save_results(results: dict, lda_model, dictionary, corpus, df, doc_topics, d
 
     # Create pyLDAvis if requested
     if create_pyldavis_html:
-        create_pyldavis(lda_model, corpus, dictionary, run_dir)
+        create_pyldavis(adapter, corpus, dictionary, run_dir)
 
     print(f"\n  All results saved to: {run_dir}")
 
@@ -623,20 +772,27 @@ def print_summary(results: dict):
 def run_experiment(num_topics: int = 20, alpha: str = 'symmetric', eta: str = 'auto',
                    passes: int = 15, iterations: int = 400,
                    min_word_len: int = 2, min_doc_freq: int = 5,
-                   max_doc_freq_ratio: float = 0.3,
+                   max_doc_freq_ratio: float = 0.5,
                    use_ngrams: str = 'both',
                    ngram_min_count: int = 10, ngram_threshold: int = 50,
                    sample_size: int = None, corpus_path: str = None,
                    save_corpus: bool = True, create_pyldavis_html: bool = True,
                    num_words_per_topic: int = 30, top_artists_per_topic: int = 20,
                    top_n_artists_heatmap: int = 50,
-                   keep_all_the_document: bool = True):
+                   keep_all_the_document: bool = True,
+                   backend: str = 'tomotopy', gibbs_iterations: int = 1000,
+                   legacy_stopwords: bool = False,
+                   dedup: bool = True, dedup_method: str = 'exact'):
     """
     Run a complete LDA experiment with given parameters.
 
     Args:
         use_ngrams: N-gram mode - 'unigrams', 'bigrams', 'trigrams', 'both',
                     'ngrams_only', 'bigram_only', 'trigram_only'
+        backend: 'tomotopy' (Gibbs, alpha tuned; default) or 'gensim' (legacy VI).
+        legacy_stopwords: if True, also remove thematic content words (old behaviour).
+        dedup: if True, remove duplicate documents before modeling.
+        dedup_method: 'exact' (default) or 'minhash'.
     """
 
     print("\n" + "="*60)
@@ -650,24 +806,25 @@ def run_experiment(num_topics: int = 20, alpha: str = 'symmetric', eta: str = 'a
     print(f"\nRun directory: {run_dir}")
     print(f"N-gram mode: {use_ngrams}")
 
-    # Determine corpus path based on n-gram mode
-    mode_corpus_path = get_corpus_path(RESULTS_DIR, use_ngrams)
+    # Determine corpus path based on n-gram mode + preprocessing settings
+    mode_corpus_path = get_corpus_path(RESULTS_DIR, use_ngrams,
+                                       dedup=dedup, legacy_stopwords=legacy_stopwords)
 
     # Load or create corpus
     if corpus_path and os.path.exists(corpus_path):
         # User specified a specific corpus path
         print(f"Loading user-specified corpus: {corpus_path}")
-        texts, dictionary, corpus, df_filtered = load_corpus(corpus_path)
+        texts, dictionary, corpus, df_filtered, dedup_stats = load_corpus(corpus_path)
     elif os.path.exists(mode_corpus_path) and sample_size is None:
-        # Auto-detect: corpus for this mode already exists (full dataset only)
+        # Auto-detect: corpus for this mode+settings already exists (full dataset only)
         print(f"Found existing corpus for mode '{use_ngrams}': {mode_corpus_path}")
-        texts, dictionary, corpus, df_filtered = load_corpus(mode_corpus_path)
+        texts, dictionary, corpus, df_filtered, dedup_stats = load_corpus(mode_corpus_path)
     else:
         # Create new corpus
         df = load_data(DATA_PATH, sample_size=sample_size)
         # Only save corpus if not sampling (full dataset)
         corpus_save_path = mode_corpus_path if (save_corpus and sample_size is None) else None
-        texts, dictionary, corpus, df_filtered = create_corpus(
+        texts, dictionary, corpus, df_filtered, dedup_stats = create_corpus(
             df,
             min_word_len=min_word_len,
             min_doc_freq=min_doc_freq,
@@ -676,24 +833,29 @@ def run_experiment(num_topics: int = 20, alpha: str = 'symmetric', eta: str = 'a
             ngram_min_count=ngram_min_count,
             ngram_threshold=ngram_threshold,
             save_path=corpus_save_path,
-            keep_all_the_document=keep_all_the_document
+            keep_all_the_document=keep_all_the_document,
+            legacy_stopwords=legacy_stopwords,
+            dedup=dedup,
+            dedup_method=dedup_method,
         )
 
-    # Train LDA
-    lda_model = train_lda(
-        corpus, dictionary,
+    # Train LDA (tomotopy Gibbs by default; gensim VI for legacy reproduction)
+    adapter = train_lda(
+        corpus, dictionary, texts=texts,
         num_topics=num_topics,
         alpha=alpha,
         eta=eta,
         passes=passes,
-        iterations=iterations
+        iterations=iterations,
+        backend=backend,
+        gibbs_iterations=gibbs_iterations,
     )
 
     # Get document-topic distributions and dominant topics
-    doc_topics, dominant_topics = get_document_topics(lda_model, corpus)
+    doc_topics, dominant_topics = adapter.get_doc_topics(corpus)
 
     # Compute all metrics
-    coherence_metrics = compute_coherence_metrics(lda_model, texts, dictionary, corpus)
+    coherence_metrics = compute_coherence_metrics(adapter, texts, dictionary, corpus)
     # Use shared functions with doc_topics for probability-based profiles
     artist_metrics = compute_artist_separation(dominant_topics, df_filtered,
                                                top_artists_per_topic=top_artists_per_topic,
@@ -702,7 +864,7 @@ def run_experiment(num_topics: int = 20, alpha: str = 'symmetric', eta: str = 'a
                                                    doc_topics=doc_topics)
 
     # Display topics
-    topics = display_topics(lda_model, num_words=num_words_per_topic)
+    topics = display_topics(adapter, num_words=num_words_per_topic)
 
     # Compile results
     results = {
@@ -711,17 +873,25 @@ def run_experiment(num_topics: int = 20, alpha: str = 'symmetric', eta: str = 'a
         'temporal_separation': temporal_metrics,
         'topics': topics,
         'parameters': {
+            'backend': backend,
             'num_topics': num_topics,
-            'alpha': str(alpha),
-            'eta': str(eta),
+            'alpha': 'optimized' if backend == 'tomotopy' else str(alpha),
+            'eta': '0.01 (fixed)' if backend == 'tomotopy' else str(eta),
+            'learned_alpha': adapter.alpha_vector(),
             'passes': passes,
             'iterations': iterations,
+            'gibbs_iterations': gibbs_iterations if backend == 'tomotopy' else None,
             'min_word_len': min_word_len,
             'min_doc_freq': min_doc_freq,
             'max_doc_freq_ratio': max_doc_freq_ratio,
             'use_ngrams': use_ngrams,
             'ngram_min_count': ngram_min_count,
             'ngram_threshold': ngram_threshold,
+            'legacy_stopwords': legacy_stopwords,
+            'dedup': dedup,
+            'dedup_method': dedup_stats.get('method'),
+            'num_docs_before_dedup': dedup_stats.get('n_before'),
+            'num_docs_removed_dedup': dedup_stats.get('n_removed'),
             'vocabulary_size': len(dictionary),
             'num_documents': len(corpus),
             'num_words_per_topic': num_words_per_topic,
@@ -735,14 +905,14 @@ def run_experiment(num_topics: int = 20, alpha: str = 'symmetric', eta: str = 'a
     print_summary(results)
 
     # Save everything
-    save_results(results, lda_model, dictionary, corpus, df_filtered, doc_topics, dominant_topics,
+    save_results(results, adapter, dictionary, corpus, df_filtered, doc_topics, dominant_topics,
                  run_dir=run_dir, create_pyldavis_html=create_pyldavis_html)
 
     # Create visualizations
     create_visualizations(results, doc_topics, dominant_topics, df_filtered,
                           run_dir=run_dir, top_n_artists=top_n_artists_heatmap)
 
-    return results, lda_model, doc_topics, dominant_topics, df_filtered
+    return results, adapter, doc_topics, dominant_topics, df_filtered
 
 
 if __name__ == "__main__":
@@ -752,8 +922,21 @@ if __name__ == "__main__":
     parser.add_argument('--topics', type=int, default=20, help='Number of topics')
     parser.add_argument('--passes', type=int, default=15, help='Number of passes')
     parser.add_argument('--iterations', type=int, default=400, help='Number of iterations')
-    parser.add_argument('--alpha', type=str, default='symmetric', help='Alpha parameter (symmetric for balanced topics)')
-    parser.add_argument('--eta', type=str, default='auto', help='Eta parameter')
+    parser.add_argument('--backend', type=str, default='tomotopy',
+                        choices=['tomotopy', 'gensim'],
+                        help='Training backend: tomotopy (Gibbs, alpha tuned; default) or gensim (legacy VI)')
+    parser.add_argument('--gibbs-iterations', type=int, default=1000,
+                        help='Number of Gibbs sampling iterations (tomotopy backend)')
+    parser.add_argument('--alpha', type=str, default='symmetric', help='Alpha parameter (gensim backend only; tomotopy tunes it)')
+    parser.add_argument('--eta', type=str, default='auto', help='Eta parameter (gensim backend only)')
+    parser.add_argument('--legacy-stopwords', action='store_true',
+                        help='Also remove thematic content words (reproduces old aggressive behaviour)')
+    parser.add_argument('--no-dedup', action='store_true',
+                        help='Do not deduplicate documents before modeling')
+    parser.add_argument('--dedup-method', type=str, default='exact', choices=['exact', 'minhash'],
+                        help='Deduplication method: exact (default) or minhash (near-duplicates, needs datasketch)')
+    parser.add_argument('--max-doc-freq', type=float, default=0.5,
+                        help='Drop words appearing in more than this fraction of documents (default 0.5)')
     parser.add_argument('--sample', type=int, default=None, help='Sample size for testing')
     parser.add_argument('--load-corpus', type=str, default=None, help='Path to load pre-computed corpus')
     parser.add_argument('--no-save-corpus', action='store_true', help='Do not save corpus')
@@ -794,4 +977,10 @@ if __name__ == "__main__":
         ngram_min_count=args.ngram_min_count,
         ngram_threshold=args.ngram_threshold,
         keep_all_the_document=not args.filter_short_docs,
+        backend=args.backend,
+        gibbs_iterations=args.gibbs_iterations,
+        legacy_stopwords=args.legacy_stopwords,
+        dedup=not args.no_dedup,
+        dedup_method=args.dedup_method,
+        max_doc_freq_ratio=args.max_doc_freq,
     )
